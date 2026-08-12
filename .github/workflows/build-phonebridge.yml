@@ -25,11 +25,13 @@ jobs:
           cp phonebridge-patches/YuvTools.java PhoneBridge/android/app/src/main/java/com/phonebridge/app/YuvTools.java
           python phonebridge-patches/fix_camera_main_thread.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
           python phonebridge-patches/fix_av_quality.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          python phonebridge-patches/fix_color_rotation_v2.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
           grep -q 'ContextCompat.getMainExecutor(this)' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
-          grep -q 'getRotationDegrees()' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          grep -q 'OUTPUT_IMAGE_FORMAT_RGBA_8888' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          grep -q 'image.toBitmap()' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          grep -q 'OrientationEventListener' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          grep -q 'UseCase.snapToSurfaceRotation' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
           grep -q 'NoiseSuppressor.isAvailable()' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
-          grep -q 'final int base = buffer.position()' PhoneBridge/android/app/src/main/java/com/phonebridge/app/YuvTools.java
-          grep -q 'rotateNv21' PhoneBridge/android/app/src/main/java/com/phonebridge/app/YuvTools.java
           if grep -q 'future.addListener.*cameraExecutor' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java; then
             echo 'CameraX lifecycle is still using background executor' >&2
             exit 1
