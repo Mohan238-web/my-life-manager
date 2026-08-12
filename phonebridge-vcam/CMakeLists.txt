@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.24)
+project(PhoneBridgeVirtualCameraSetup LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 20)
+add_executable(PhoneBridgeVirtualCameraSetup WIN32 PhoneBridgeVirtualCameraSetup.cpp)
+target_compile_definitions(PhoneBridgeVirtualCameraSetup PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_link_libraries(PhoneBridgeVirtualCameraSetup PRIVATE mfplat mfuuid mfsensorgroup advapi32 shell32 ole32)
