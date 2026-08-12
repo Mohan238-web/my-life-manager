@@ -72,13 +72,16 @@ jobs:
           $b64 = ($names | ForEach-Object { Get-Content "phonebridge-source/$_.b64" -Raw }) -join ''
           [IO.File]::WriteAllBytes('PhoneBridge-source.rebuilt.zip', [Convert]::FromBase64String($b64))
           Expand-Archive -Path PhoneBridge-source.rebuilt.zip -DestinationPath . -Force
-      - name: Apply control and cross-session bus patches
+      - name: Apply control, color-decode and cross-session bus patches
         shell: pwsh
         run: |
           Copy-Item phonebridge-patches/Receiver.cpp PhoneBridge/windows/native/Receiver.cpp -Force
+          Copy-Item phonebridge-patches/JpegDecoder.cpp PhoneBridge/windows/native/JpegDecoder.cpp -Force
           Copy-Item phonebridge-patches/CMakeLists.txt PhoneBridge/windows/native/CMakeLists.txt -Force
           Copy-Item phonebridge-patches/SharedBus.cpp PhoneBridge/windows/native/SharedBus.cpp -Force
           Copy-Item phonebridge-patches/SharedBus.h PhoneBridge/windows/native/SharedBus.h -Force
+          Select-String -Path PhoneBridge/windows/native/JpegDecoder.cpp -Pattern 'GUID_WICPixelFormat24bppBGR' -Quiet | ForEach-Object { if (-not $_) { throw '24bpp BGR decoder patch missing' } }
+          Select-String -Path PhoneBridge/windows/native/JpegDecoder.cpp -Pattern 'dst\[x \* 4 \+ 3\] = 255' -Quiet | ForEach-Object { if (-not $_) { throw 'Explicit BGRA expansion missing' } }
       - name: Configure
         shell: pwsh
         run: cmake -S PhoneBridge/windows/native -B PhoneBridge/windows/build -A x64
