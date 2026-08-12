@@ -23,9 +23,14 @@ jobs:
       - name: Restore NuGet packages
         shell: pwsh
         run: nuget restore windows-camera/Samples/VirtualCamera/VirtualCameraSample.sln -PackagesDirectory windows-camera/Samples/VirtualCamera/packages -NonInteractive
-      - name: Patch frame source and PhoneBridge COM CLSID
+      - name: Patch frame source, color conversion and PhoneBridge COM CLSID
         shell: pwsh
-        run: python phonebridge-vcam/patch_vcam.py windows-camera/Samples/VirtualCamera/VirtualCameraMediaSource/SimpleFrameGenerator.cpp
+        run: |
+          python phonebridge-vcam/patch_vcam.py windows-camera/Samples/VirtualCamera/VirtualCameraMediaSource/SimpleFrameGenerator.cpp
+          $src = 'windows-camera/Samples/VirtualCamera/VirtualCameraMediaSource/SimpleFrameGenerator.cpp'
+          if (-not (Select-String -Path $src -Pattern 'PhoneBridgeColorSafeNV12' -Quiet)) { throw 'Color-safe NV12 converter patch missing' }
+          if (-not (Select-String -Path $src -Pattern 'dst\[0\] = src\[0\]' -Quiet)) { throw 'Explicit BGRA bus copy patch missing' }
+          python phonebridge-vcam/test_color_math.py
       - name: Locate MSBuild
         shell: pwsh
         run: |
@@ -60,12 +65,15 @@ jobs:
           @'
           PhoneBridge Camera - Windows 11 build 22000+
 
-          1. Keep PhoneBridge-Control.exe running and the phone connected.
-          2. Double-click PhoneBridgeVirtualCameraSetup.exe and approve the Windows UAC prompt.
-          3. Restart Zoom, Meet, Teams, OBS or the browser.
-          4. Select "PhoneBridge Camera" as the camera.
+          COLOR FIX BUILD
+          1. Uninstall the previous PhoneBridge Camera by running PhoneBridgeVirtualCameraSetup.exe /uninstall from the OLD package if available.
+          2. Keep the two NEW files together.
+          3. Run the NEW PhoneBridgeVirtualCameraSetup.exe as administrator.
+          4. Keep PhoneBridge-Control.exe running and the phone connected.
+          5. Restart Zoom, Meet, Teams, OBS, Windows Camera or the browser.
+          6. Select "PhoneBridge Camera" as the camera.
 
-          To remove: run PhoneBridgeVirtualCameraSetup.exe /uninstall from a Command Prompt, or create a shortcut with /uninstall.
+          This build uses an explicit BGRA -> BT.601 NV12 conversion with 2x2 chroma averaging.
           This test build is not commercially code-signed.
           '@ | Set-Content phonebridge-vcam-out/README.txt
           Get-FileHash phonebridge-vcam-out/VirtualCameraMediaSource.dll -Algorithm SHA256
