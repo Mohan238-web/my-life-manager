@@ -1,98 +1,51 @@
 #include "JpegDecoder.h"
-#include <shlwapi.h>
-#include <cstring>
-#pragma comment(lib,"windowscodecs.lib")
-#pragma comment(lib,"shlwapi.lib")
+#include <turbojpeg.h>
+#include <climits>
+#include <limits>
 
 JpegDecoder::JpegDecoder() = default;
-JpegDecoder::~JpegDecoder(){ if(factory_) factory_->Release(); }
+
+JpegDecoder::~JpegDecoder(){
+    if(handle_){
+        tjDestroy(reinterpret_cast<tjhandle>(handle_));
+        handle_ = nullptr;
+    }
+}
 
 bool JpegDecoder::init(){
-    return SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
-                                      IID_PPV_ARGS(&factory_)));
+    if(handle_) return true;
+    handle_ = tjInitDecompress();
+    return handle_ != nullptr;
 }
 
 bool JpegDecoder::decodeToBgra(const uint8_t* data, size_t size,
                                std::vector<uint8_t>& out,
                                uint32_t& w, uint32_t& h, uint32_t& stride){
-    if(!factory_ || !data || size == 0 || size > UINT_MAX) return false;
+    if(!handle_ || !data || size == 0 || size > static_cast<size_t>(ULONG_MAX)) return false;
 
-    HGLOBAL mem = GlobalAlloc(GMEM_MOVEABLE, size);
-    if(!mem) return false;
-    void* p = GlobalLock(mem);
-    if(!p){ GlobalFree(mem); return false; }
-    memcpy(p, data, size);
-    GlobalUnlock(mem);
+    int iw = 0, ih = 0, subsamp = 0, colorspace = 0;
+    if(tjDecompressHeader3(reinterpret_cast<tjhandle>(handle_),
+                           data, static_cast<unsigned long>(size),
+                           &iw, &ih, &subsamp, &colorspace) != 0) return false;
+    if(iw <= 0 || ih <= 0) return false;
 
-    IStream* stream = nullptr;
-    if(FAILED(CreateStreamOnHGlobal(mem, TRUE, &stream))){
-        GlobalFree(mem);
-        return false;
-    }
+    const uint64_t stride64 = static_cast<uint64_t>(iw) * 4ull;
+    const uint64_t bytes64 = stride64 * static_cast<uint64_t>(ih);
+    if(stride64 > UINT32_MAX || bytes64 > static_cast<uint64_t>(std::numeric_limits<size_t>::max())) return false;
 
-    IWICBitmapDecoder* decoder = nullptr;
-    HRESULT hr = factory_->CreateDecoderFromStream(stream, nullptr,
-                                                    WICDecodeMetadataCacheOnLoad, &decoder);
-    stream->Release();
-    if(FAILED(hr)) return false;
+    std::vector<uint8_t> decoded(static_cast<size_t>(bytes64));
+    if(tjDecompress2(reinterpret_cast<tjhandle>(handle_),
+                     data, static_cast<unsigned long>(size),
+                     decoded.data(), iw, static_cast<int>(stride64), ih,
+                     TJPF_BGRA, TJFLAG_FASTDCT) != 0) return false;
 
-    IWICBitmapFrameDecode* frame = nullptr;
-    hr = decoder->GetFrame(0, &frame);
-    decoder->Release();
-    if(FAILED(hr)) return false;
+    // TurboJPEG's TJPF_BGRA is byte-defined B,G,R,A. Force alpha to 255 so
+    // both GDI preview and the virtual-camera bus see an opaque top-down frame.
+    for(size_t i = 3; i < decoded.size(); i += 4) decoded[i] = 255;
 
-    UINT uw = 0, uh = 0;
-    hr = frame->GetSize(&uw, &uh);
-    if(FAILED(hr) || !uw || !uh){ frame->Release(); return false; }
-
-    // Decode to a no-alpha, byte-defined Windows format first. This avoids any
-    // ambiguity around premultiplied alpha/channel interpretation in the preview
-    // and in the virtual-camera shared bus.
-    IWICFormatConverter* converter = nullptr;
-    hr = factory_->CreateFormatConverter(&converter);
-    if(SUCCEEDED(hr)){
-        hr = converter->Initialize(frame,
-                                   GUID_WICPixelFormat24bppBGR,
-                                   WICBitmapDitherTypeNone,
-                                   nullptr,
-                                   0.0,
-                                   WICBitmapPaletteTypeCustom);
-    }
-    frame->Release();
-    if(FAILED(hr)){
-        if(converter) converter->Release();
-        return false;
-    }
-
-    const uint64_t bgrStride64 = static_cast<uint64_t>(uw) * 3ull;
-    const uint64_t bgrBytes64 = bgrStride64 * uh;
-    const uint64_t bgraStride64 = static_cast<uint64_t>(uw) * 4ull;
-    const uint64_t bgraBytes64 = bgraStride64 * uh;
-    if(bgrStride64 > UINT_MAX || bgrBytes64 > UINT_MAX || bgraBytes64 > SIZE_MAX){
-        converter->Release();
-        return false;
-    }
-
-    const UINT bgrStride = static_cast<UINT>(bgrStride64);
-    std::vector<uint8_t> bgr(static_cast<size_t>(bgrBytes64));
-    hr = converter->CopyPixels(nullptr, bgrStride, static_cast<UINT>(bgr.size()), bgr.data());
-    converter->Release();
-    if(FAILED(hr)) return false;
-
-    w = uw;
-    h = uh;
-    stride = static_cast<uint32_t>(bgraStride64);
-    out.resize(static_cast<size_t>(bgraBytes64));
-
-    for(uint32_t y = 0; y < h; ++y){
-        const uint8_t* src = bgr.data() + static_cast<size_t>(y) * bgrStride;
-        uint8_t* dst = out.data() + static_cast<size_t>(y) * stride;
-        for(uint32_t x = 0; x < w; ++x){
-            dst[x * 4 + 0] = src[x * 3 + 0]; // B
-            dst[x * 4 + 1] = src[x * 3 + 1]; // G
-            dst[x * 4 + 2] = src[x * 3 + 2]; // R
-            dst[x * 4 + 3] = 255;            // A
-        }
-    }
+    w = static_cast<uint32_t>(iw);
+    h = static_cast<uint32_t>(ih);
+    stride = static_cast<uint32_t>(stride64);
+    out.swap(decoded);
     return true;
 }
