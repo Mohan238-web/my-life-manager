@@ -5,6 +5,7 @@ on:
     branches: [phonebridge-build]
     paths:
       - '.github/workflows/package-phonebridge-v1-fast.yml'
+      - 'phonebridge-installer/**'
   workflow_dispatch:
 
 permissions:
