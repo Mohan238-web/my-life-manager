@@ -20,14 +20,25 @@ replacement = r'''HRESULT SimpleFrameGenerator::_CreateRGB32Frame(
         return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
     (void)rgbMask;
 
-    // The PhoneBridge receiver owns this session-local shared memory mapping.
+    // Frame Server loads this media source as Local Service in Session 0.
+    // Use a file-backed mapping under ProgramData so both service and user sessions can access it.
     // Header is packed: seq(4), width(4), height(4), stride(4), bytes(4), timestamp100ns(8).
+    static HANDLE s_file = INVALID_HANDLE_VALUE;
     static HANDLE s_map = nullptr;
     static BYTE* s_view = nullptr;
     if (!s_view)
     {
-        s_map = OpenFileMappingW(FILE_MAP_READ, FALSE, L"Local\\PhoneBridgeVideo");
-        if (s_map) s_view = static_cast<BYTE*>(MapViewOfFile(s_map, FILE_MAP_READ, 0, 0, 0));
+        wchar_t base[MAX_PATH]{};
+        if (GetEnvironmentVariableW(L"ProgramData", base, MAX_PATH))
+        {
+            std::wstring path = std::wstring(base) + L"\\PhoneBridge\\video.bus";
+            s_file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (s_file != INVALID_HANDLE_VALUE)
+            {
+                s_map = CreateFileMappingW(s_file, nullptr, PAGE_READONLY, 0, 0, nullptr);
+                if (s_map) s_view = static_cast<BYTE*>(MapViewOfFile(s_map, FILE_MAP_READ, 0, 0, 0));
+            }
+        }
     }
 
     auto fillBlack = [&]() {

@@ -4,8 +4,11 @@
 #include <mfapi.h>
 #include <mfidl.h>
 #include <mfvirtualcamera.h>
+#include <sddl.h>
+#include <aclapi.h>
 #include <filesystem>
 #include <string>
+#include <sstream>
 #pragma comment(lib, "mfplat.lib")
 #pragma comment(lib, "mfuuid.lib")
 #pragma comment(lib, "mfsensorgroup.lib")
@@ -15,6 +18,7 @@
 
 static constexpr wchar_t kClsid[] = L"{7B89B92E-FE71-42D0-8A41-E137D06EA184}";
 static constexpr wchar_t kFriendly[] = L"PhoneBridge Camera";
+// VCAM_KIND = {C7F7C57B-DF30-41D0-AFFC-15201CDF920D}
 static const GUID VCAM_KIND_PB = {0xc7f7c57b,0xdf30,0x41d0,{0xaf,0xfc,0x15,0x20,0x1c,0xdf,0x92,0x0d}};
 
 static bool IsElevated() {
@@ -48,7 +52,39 @@ static HRESULT OpenCamera(IMFVirtualCamera** out) {
         MFVirtualCameraLifetime_System, MFVirtualCameraAccess_CurrentUser,
         kFriendly, kClsid, nullptr, 0, out);
 }
+
+static HRESULT PrepareSharedBusDirectory() {
+    wchar_t base[MAX_PATH]{};
+    if(!GetEnvironmentVariableW(L"ProgramData",base,MAX_PATH)) return HRESULT_FROM_WIN32(GetLastError());
+    std::filesystem::path dir=std::filesystem::path(base)/L"PhoneBridge";
+    std::error_code ec; std::filesystem::create_directories(dir,ec);
+
+    PSECURITY_DESCRIPTOR sd=nullptr;
+    // Users: read/write; Local Service: read; SYSTEM/Admins: full control.
+    if(!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+        L"D:P(A;OICI;GA;;;SY)(A;OICI;GA;;;BA)(A;OICI;GRGW;;;BU)(A;OICI;GR;;;LS)",
+        SDDL_REVISION_1,&sd,nullptr)) return HRESULT_FROM_WIN32(GetLastError());
+    PACL dacl=nullptr; BOOL present=FALSE, defaulted=FALSE;
+    if(!GetSecurityDescriptorDacl(sd,&present,&dacl,&defaulted) || !present){ LocalFree(sd); return E_FAIL; }
+    std::wstring dirText=dir.wstring();
+    DWORD er=SetNamedSecurityInfoW(dirText.data(),SE_FILE_OBJECT,DACL_SECURITY_INFORMATION|PROTECTED_DACL_SECURITY_INFORMATION,
+        nullptr,nullptr,dacl,nullptr);
+    LocalFree(sd); if(er!=ERROR_SUCCESS) return HRESULT_FROM_WIN32(er);
+
+    auto makeFile=[&](const wchar_t* name, ULONGLONG bytes)->HRESULT {
+        std::filesystem::path path=dir/name;
+        HANDLE f=CreateFileW(path.c_str(),GENERIC_READ|GENERIC_WRITE,FILE_SHARE_READ|FILE_SHARE_WRITE,nullptr,OPEN_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
+        if(f==INVALID_HANDLE_VALUE) return HRESULT_FROM_WIN32(GetLastError());
+        LARGE_INTEGER size{}; size.QuadPart=(LONGLONG)bytes;
+        BOOL ok=SetFilePointerEx(f,size,nullptr,FILE_BEGIN) && SetEndOfFile(f);
+        CloseHandle(f); return ok?S_OK:HRESULT_FROM_WIN32(GetLastError());
+    };
+    HRESULT hr=makeFile(L"video.bus",3840ull*2160ull*4ull+4096ull); if(FAILED(hr)) return hr;
+    return makeFile(L"audio.bus",2ull*1024ull*1024ull);
+}
+
 static HRESULT InstallCamera() {
+    HRESULT prep=PrepareSharedBusDirectory(); if(FAILED(prep)) return prep;
     wchar_t exePath[MAX_PATH]{}; GetModuleFileNameW(nullptr,exePath,MAX_PATH);
     std::filesystem::path source = std::filesystem::path(exePath).parent_path()/L"VirtualCameraMediaSource.dll";
     if(!std::filesystem::exists(source)) { Show(L"VirtualCameraMediaSource.dll must be beside this setup file.",MB_OK|MB_ICONERROR); return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND); }
@@ -62,7 +98,7 @@ static HRESULT InstallCamera() {
     IMFVirtualCamera* cam=nullptr;
     hr=OpenCamera(&cam);
     if(SUCCEEDED(hr) && cam) {
-        hr=cam->SetUINT32(VCAM_KIND_PB,0);
+        hr=cam->SetUINT32(VCAM_KIND_PB,0); // Synthetic media source -> patched PhoneBridge frames.
         if(SUCCEEDED(hr)) hr=cam->Start(nullptr);
         cam->Shutdown(); cam->Release();
     }

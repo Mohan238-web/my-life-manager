@@ -59,11 +59,13 @@ jobs:
           $b64 = ($names | ForEach-Object { Get-Content "phonebridge-source/$_.b64" -Raw }) -join ''
           [IO.File]::WriteAllBytes('PhoneBridge-source.rebuilt.zip', [Convert]::FromBase64String($b64))
           Expand-Archive -Path PhoneBridge-source.rebuilt.zip -DestinationPath . -Force
-      - name: Apply control patches
+      - name: Apply control and cross-session bus patches
         shell: pwsh
         run: |
           Copy-Item phonebridge-patches/Receiver.cpp PhoneBridge/windows/native/Receiver.cpp -Force
           Copy-Item phonebridge-patches/CMakeLists.txt PhoneBridge/windows/native/CMakeLists.txt -Force
+          Copy-Item phonebridge-patches/SharedBus.cpp PhoneBridge/windows/native/SharedBus.cpp -Force
+          Copy-Item phonebridge-patches/SharedBus.h PhoneBridge/windows/native/SharedBus.h -Force
       - name: Configure
         shell: pwsh
         run: cmake -S PhoneBridge/windows/native -B PhoneBridge/windows/build -A x64
