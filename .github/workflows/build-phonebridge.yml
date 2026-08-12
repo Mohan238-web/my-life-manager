@@ -74,7 +74,7 @@ jobs:
           if-no-files-found: error
 
   windows:
-    name: Windows Diagnostic Receiver
+    name: Windows TurboJPEG Receiver
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -85,26 +85,40 @@ jobs:
           $b64 = ($names | ForEach-Object { Get-Content "phonebridge-source/$_.b64" -Raw }) -join ''
           [IO.File]::WriteAllBytes('PhoneBridge-source.rebuilt.zip', [Convert]::FromBase64String($b64))
           Expand-Archive -Path PhoneBridge-source.rebuilt.zip -DestinationPath . -Force
-      - name: Apply receiver and untouched-JPEG diagnostic patches
+      - name: Build static libjpeg-turbo 3.2.0
+        shell: pwsh
+        run: |
+          git clone --branch 3.2.0 --depth 1 https://github.com/libjpeg-turbo/libjpeg-turbo.git libjpeg-turbo
+          $prefix = Join-Path $PWD 'libjpeg-install'
+          cmake -S libjpeg-turbo -B libjpeg-build -A x64 -DENABLE_SHARED=OFF -DENABLE_STATIC=ON -DWITH_TURBOJPEG=ON -DWITH_TOOLS=OFF -DWITH_TESTS=OFF -DWITH_SIMD=OFF -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded "-DCMAKE_INSTALL_PREFIX=$prefix"
+          cmake --build libjpeg-build --config Release --target install
+      - name: Apply TurboJPEG receiver and diagnostic patches
         shell: pwsh
         run: |
           Copy-Item phonebridge-patches/Receiver.cpp PhoneBridge/windows/native/Receiver.cpp -Force
           Copy-Item phonebridge-patches/JpegDecoder.cpp PhoneBridge/windows/native/JpegDecoder.cpp -Force
+          Copy-Item phonebridge-patches/JpegDecoder.h PhoneBridge/windows/native/JpegDecoder.h -Force
+          Copy-Item phonebridge-patches/DecoderSelfTest.cpp PhoneBridge/windows/native/DecoderSelfTest.cpp -Force
           Copy-Item phonebridge-patches/CMakeLists.txt PhoneBridge/windows/native/CMakeLists.txt -Force
           Copy-Item phonebridge-patches/SharedBus.cpp PhoneBridge/windows/native/SharedBus.cpp -Force
           Copy-Item phonebridge-patches/SharedBus.h PhoneBridge/windows/native/SharedBus.h -Force
           python phonebridge-patches/add_raw_jpeg_diagnostic.py PhoneBridge/windows/native/Receiver.cpp
-          Select-String -Path PhoneBridge/windows/native/JpegDecoder.cpp -Pattern 'GUID_WICPixelFormat24bppBGR' -Quiet | ForEach-Object { if (-not $_) { throw '24bpp BGR decoder patch missing' } }
+          Select-String -Path PhoneBridge/windows/native/JpegDecoder.cpp -Pattern 'tjDecompress2' -Quiet | ForEach-Object { if (-not $_) { throw 'TurboJPEG decoder missing' } }
+          Select-String -Path PhoneBridge/windows/native/JpegDecoder.cpp -Pattern 'TJPF_BGRA' -Quiet | ForEach-Object { if (-not $_) { throw 'Explicit BGRA output missing' } }
           Select-String -Path PhoneBridge/windows/native/Receiver.cpp -Pattern 'PhoneBridge-Raw-Frame.jpg' -Quiet | ForEach-Object { if (-not $_) { throw 'Raw JPEG diagnostic missing' } }
-          Select-String -Path PhoneBridge/windows/native/Receiver.cpp -Pattern 'saveRawJpegOnce\(payload\)' -Quiet | ForEach-Object { if (-not $_) { throw 'Raw JPEG capture call missing' } }
-      - name: Configure
+      - name: Configure PhoneBridge
         shell: pwsh
-        run: cmake -S PhoneBridge/windows/native -B PhoneBridge/windows/build -A x64
-      - name: Build
+        run: |
+          $prefix = Join-Path $PWD 'libjpeg-install'
+          cmake -S PhoneBridge/windows/native -B PhoneBridge/windows/build -A x64 "-DCMAKE_PREFIX_PATH=$prefix"
+      - name: Build PhoneBridge
         shell: pwsh
         run: cmake --build PhoneBridge/windows/build --config Release
+      - name: Verify JPEG RGB channels
+        shell: pwsh
+        run: PhoneBridge/windows/build/Release/PhoneBridgeDecoderSelfTest.exe
       - uses: actions/upload-artifact@v4
         with:
-          name: PhoneBridge-Windows-Diagnostic-Receiver
+          name: PhoneBridge-Windows-TurboJPEG-Receiver
           path: PhoneBridge/windows/build/Release/PhoneBridgeReceiver.exe
           if-no-files-found: error
