@@ -3,10 +3,28 @@ import sys
 
 p = Path(sys.argv[1] if len(sys.argv) > 1 else 'windows-camera/Samples/VirtualCamera/VirtualCameraMediaSource/SimpleFrameGenerator.cpp')
 s = p.read_text(encoding='utf-8-sig')
-start = s.index('HRESULT SimpleFrameGenerator::_CreateRGB32Frame(')
-marker = '//////////////////////////////////////////////////\n// pixelFormatConverter'
-end = s.index(marker, start)
-replacement = r'''HRESULT SimpleFrameGenerator::_CreateRGB32Frame(
+
+
+def replace_cpp_function(text: str, signature: str, replacement: str) -> str:
+    start = text.index(signature)
+    brace = text.index('{', start)
+    depth = 0
+    end = None
+    for i in range(brace, len(text)):
+        ch = text[i]
+        if ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0:
+                end = i + 1
+                break
+    if end is None:
+        raise RuntimeError(f'Could not locate end of {signature}')
+    return text[:start] + replacement + text[end:]
+
+
+frame_reader = r'''HRESULT SimpleFrameGenerator::_CreateRGB32Frame(
     _Inout_updates_bytes_(len) BYTE* pBuf,
     _In_ DWORD len,
     _In_ LONG pitch,
@@ -82,7 +100,13 @@ replacement = r'''HRESULT SimpleFrameGenerator::_CreateRGB32Frame(
             for (DWORD x = 0; x < width; ++x)
             {
                 const DWORD sx = static_cast<DWORD>((static_cast<ULONGLONG>(x) * srcW) / width);
-                memcpy(dstRow + static_cast<size_t>(x) * 4, srcRow + static_cast<size_t>(sx) * 4, 4);
+                const BYTE* src = srcRow + static_cast<size_t>(sx) * 4;
+                BYTE* dst = dstRow + static_cast<size_t>(x) * 4;
+                // Shared bus is explicit BGRA: B,G,R,A.
+                dst[0] = src[0];
+                dst[1] = src[1];
+                dst[2] = src[2];
+                dst[3] = 255;
             }
         }
 
@@ -94,17 +118,102 @@ replacement = r'''HRESULT SimpleFrameGenerator::_CreateRGB32Frame(
     if (!copied) fillBlack();
     return S_OK;
 }
-
 '''
-s = s[:start] + replacement + s[end:]
+
+s = replace_cpp_function(s, 'HRESULT SimpleFrameGenerator::_CreateRGB32Frame(', frame_reader)
+
+# Replace Microsoft's sample RGB32 -> NV12 routine. The sample is designed as a demo and
+# chooses chroma from individual pixels. PhoneBridge uses a deterministic BT.601 limited-range
+# conversion with explicit B/G/R order, 2x2 chroma averaging, and clamping.
+color_safe_nv12 = r'''HRESULT SimpleFrameGenerator::RGB32ToNV12Frame(
+    _Inout_updates_bytes_(len) BYTE* pbBuff,
+    ULONG cbBuff,
+    long stride,
+    UINT width,
+    UINT height,
+    BYTE* pbBuffOut,
+    ULONG cbBuffOut,
+    long strideOut)
+{
+    // PhoneBridgeColorSafeNV12
+    if (!pbBuff || !pbBuffOut || width == 0 || height == 0 || stride <= 0 || strideOut <= 0)
+        return E_INVALIDARG;
+
+    const size_t srcRequired = static_cast<size_t>(stride) * height;
+    const size_t yBytes = static_cast<size_t>(strideOut) * height;
+    const size_t uvRows = (height + 1u) / 2u;
+    const size_t dstRequired = yBytes + static_cast<size_t>(strideOut) * uvRows;
+    if (srcRequired > cbBuff || dstRequired > cbBuffOut)
+        return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
+
+    auto clampByte = [](int v) -> BYTE {
+        if (v < 0) return 0;
+        if (v > 255) return 255;
+        return static_cast<BYTE>(v);
+    };
+    auto yFromRgb = [&](int r, int g, int b) -> BYTE {
+        return clampByte(((66 * r + 129 * g + 25 * b + 128) >> 8) + 16);
+    };
+    auto uFromRgb = [&](int r, int g, int b) -> BYTE {
+        return clampByte(((-38 * r - 74 * g + 112 * b + 128) >> 8) + 128);
+    };
+    auto vFromRgb = [&](int r, int g, int b) -> BYTE {
+        return clampByte(((112 * r - 94 * g - 18 * b + 128) >> 8) + 128);
+    };
+
+    // Y plane. RGB32 in this sample is stored bytewise as B,G,R,X on little-endian Windows.
+    for (UINT y = 0; y < height; ++y)
+    {
+        const BYTE* srcRow = pbBuff + static_cast<size_t>(y) * stride;
+        BYTE* yRow = pbBuffOut + static_cast<size_t>(y) * strideOut;
+        for (UINT x = 0; x < width; ++x)
+        {
+            const BYTE* px = srcRow + static_cast<size_t>(x) * 4;
+            const int b = px[0];
+            const int g = px[1];
+            const int r = px[2];
+            yRow[x] = yFromRgb(r, g, b);
+        }
+    }
+
+    // Interleaved UV plane. Average the source RGB of each 2x2 block before conversion.
+    BYTE* uvBase = pbBuffOut + yBytes;
+    for (UINT y = 0; y < height; y += 2)
+    {
+        BYTE* uvRow = uvBase + static_cast<size_t>(y / 2) * strideOut;
+        for (UINT x = 0; x < width; x += 2)
+        {
+            int sumR = 0, sumG = 0, sumB = 0, count = 0;
+            for (UINT dy = 0; dy < 2 && y + dy < height; ++dy)
+            {
+                const BYTE* srcRow = pbBuff + static_cast<size_t>(y + dy) * stride;
+                for (UINT dx = 0; dx < 2 && x + dx < width; ++dx)
+                {
+                    const BYTE* px = srcRow + static_cast<size_t>(x + dx) * 4;
+                    sumB += px[0];
+                    sumG += px[1];
+                    sumR += px[2];
+                    ++count;
+                }
+            }
+            const int r = sumR / count;
+            const int g = sumG / count;
+            const int b = sumB / count;
+            uvRow[x] = uFromRgb(r, g, b);
+            if (x + 1 < static_cast<UINT>(strideOut))
+                uvRow[x + 1] = vFromRgb(r, g, b);
+        }
+    }
+
+    return S_OK;
+}
+'''
+
+s = replace_cpp_function(s, 'HRESULT SimpleFrameGenerator::RGB32ToNV12Frame(', color_safe_nv12)
 p.write_text(s, encoding='utf-8')
-print(f'Patched {p}')
+print(f'Patched frame bus + color-safe NV12 conversion in {p}')
 
 # Give PhoneBridge its own media-source CLSID rather than reusing Microsoft's sample CLSID.
-# IMPORTANT: Microsoft's sample declares the CLSID in more than one file:
-# VirtualCameraMediaSource.h and VirtualCameraMediaSourceActivate.h (__declspec(uuid)).
-# Patch every textual source in this project so DllGetClassObject and MFCreateVirtualCamera
-# always use exactly the same CLSID.
 old_guid = '7B89B92E-FE71-42D0-8A41-E137D06EA184'
 new_guid = 'A7318E11-4B4C-4BCC-A19F-FA192BA8BA5D'
 old_hex = '0x7b89b92e, 0xfe71, 0x42d0, 0x8a, 0x41, 0xe1, 0x37, 0xd0, 0x6e, 0xa1, 0x84'
@@ -131,7 +240,6 @@ missing = sorted(required - set(patched_guid_files))
 if missing:
     raise RuntimeError(f'PhoneBridge CLSID patch did not update required files: {missing}')
 
-# Build-time guard: the old CLSID must not remain in any media-source text source.
 remaining = []
 for candidate in p.parent.iterdir():
     if not candidate.is_file() or candidate.suffix.lower() not in {'.h', '.hpp', '.cpp', '.c', '.idl', '.def', '.props'}:
