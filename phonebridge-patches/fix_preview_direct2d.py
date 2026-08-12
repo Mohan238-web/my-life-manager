@@ -68,14 +68,12 @@ if 'void saveDecodedBmpOnce' not in s:
     if helper_anchor not in s: raise SystemExit('helper anchor not found')
     s=s.replace(helper_anchor,helper_anchor+helpers,1)
 
-# Save exact decoder output before shared-bus/render processing.
 needle='''                std::vector<uint8_t> bgra; uint32_t w=0,hg=0,stride=0; if(jpeg.decodeToBgra(payload.data(),payload.size(),bgra,w,hg,stride)){\n                    auto now='''
 repl='''                std::vector<uint8_t> bgra; uint32_t w=0,hg=0,stride=0; if(jpeg.decodeToBgra(payload.data(),payload.size(),bgra,w,hg,stride)){\n                    saveDecodedBmpOnce(bgra.data(),w,hg,stride);\n                    auto now='''
 if 'saveDecodedBmpOnce(bgra.data(),w,hg,stride);' not in s:
     if needle not in s: raise SystemExit('decoded frame insertion point not found')
     s=s.replace(needle,repl,1)
 
-# Reset diagnostic for each new connection.
 s=s.replace('g_paired=false; std::string device="Phone";', 'g_paired=false; g_decodedBmpSaved=false; std::string device="Phone";')
 
 new_paint=r'''void paintPreview(HWND hwnd,HDC){
@@ -124,11 +122,9 @@ m=re.search(pat,s,re.S)
 if not m: raise SystemExit('paintPreview block not found')
 s=s[:m.start()]+new_paint+'\nHFONT makeFont'+s[m.end():]
 
-# Resize D2D target with the window.
 s=s.replace('case WM_SIZE: layout(hwnd); InvalidateRect(hwnd,nullptr,TRUE); return 0;',
-'''case WM_SIZE: if(g_d2dTarget){ g_d2dTarget->Resize(D2D1::SizeU((UINT32)std::max(1,LOWORD(lp)),(UINT32)std::max(1,HIWORD(lp)))); } layout(hwnd); InvalidateRect(hwnd,nullptr,TRUE); return 0;''')
+'''case WM_SIZE: if(g_d2dTarget){ g_d2dTarget->Resize(D2D1::SizeU((UINT32)std::max(1,(int)LOWORD(lp)),(UINT32)std::max(1,(int)HIWORD(lp)))); } layout(hwnd); InvalidateRect(hwnd,nullptr,TRUE); return 0;''')
 
-# Release D2D resources at shutdown.
 s=s.replace('case WM_DESTROY:{ g_running=false;',
 '''case WM_DESTROY:{ releaseD2DTarget(); if(g_d2dFactory){ g_d2dFactory->Release(); g_d2dFactory=nullptr; } g_running=false;''')
 
