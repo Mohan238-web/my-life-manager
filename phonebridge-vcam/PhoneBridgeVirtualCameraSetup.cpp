@@ -97,6 +97,24 @@ static HRESULT PrepareSharedBusDirectory() {
     return hr;
 }
 
+static void CleanupOldMediaSourceDlls(const std::filesystem::path& dir, const std::filesystem::path& keep = {}) {
+    std::error_code ec;
+    if(!std::filesystem::exists(dir,ec)) return;
+    for(std::filesystem::directory_iterator it(dir,ec), end; !ec && it!=end; it.increment(ec)) {
+        if(!it->is_regular_file(ec)) continue;
+        const auto path = it->path();
+        const std::wstring name = path.filename().wstring();
+        if(name.rfind(L"VirtualCameraMediaSource",0)!=0 || path.extension()!=L".dll") continue;
+        if(!keep.empty() && std::filesystem::equivalent(path,keep,ec)) { ec.clear(); continue; }
+        if(!DeleteFileW(path.c_str())) {
+            DWORD er=GetLastError();
+            if(er==ERROR_SHARING_VIOLATION || er==ERROR_ACCESS_DENIED) {
+                MoveFileExW(path.c_str(),nullptr,MOVEFILE_DELAY_UNTIL_REBOOT);
+            }
+        }
+    }
+}
+
 static HRESULT InstallCamera() {
     HRESULT prep=PrepareSharedBusDirectory(); if(FAILED(prep)) return prep;
     wchar_t exePath[MAX_PATH]{}; GetModuleFileNameW(nullptr,exePath,MAX_PATH);
@@ -104,9 +122,21 @@ static HRESULT InstallCamera() {
     if(!std::filesystem::exists(source)) { Show(L"VirtualCameraMediaSource.dll must be beside this setup file.",MB_OK|MB_ICONERROR); return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND); }
     wchar_t pf[MAX_PATH]{}; if(!GetEnvironmentVariableW(L"ProgramFiles",pf,MAX_PATH)) return HRESULT_FROM_WIN32(GetLastError());
     std::filesystem::path dir=std::filesystem::path(pf)/L"PhoneBridge"; std::error_code ec; std::filesystem::create_directories(dir,ec);
-    std::filesystem::path dest=dir/L"VirtualCameraMediaSource.dll";
-    if(!CopyFileW(source.c_str(),dest.c_str(),FALSE)) return HRESULT_FROM_WIN32(GetLastError());
-    if(!RegisterCom(dest.wstring())) return HRESULT_FROM_WIN32(GetLastError());
+    if(ec) return HRESULT_FROM_WIN32((DWORD)ec.value());
+
+    // Never overwrite a media-source DLL that Windows Frame Server may still have loaded.
+    // Each upgrade gets a unique file name, then COM is repointed to the new binary.
+    FILETIME ft{}; GetSystemTimeAsFileTime(&ft);
+    ULARGE_INTEGER stamp{}; stamp.LowPart=ft.dwLowDateTime; stamp.HighPart=ft.dwHighDateTime;
+    wchar_t uniqueName[128]{};
+    swprintf_s(uniqueName,L"VirtualCameraMediaSource-%08X-%016llX.dll",GetCurrentProcessId(),stamp.QuadPart);
+    std::filesystem::path dest=dir/uniqueName;
+    if(!CopyFileW(source.c_str(),dest.c_str(),TRUE)) return HRESULT_FROM_WIN32(GetLastError());
+    if(!RegisterCom(dest.wstring())) { DeleteFileW(dest.c_str()); return HRESULT_FROM_WIN32(GetLastError()); }
+
+    // Old DLLs can remain loaded until Frame Server releases them; remove now when possible,
+    // otherwise schedule only those old files for deletion at the next reboot.
+    CleanupOldMediaSourceDlls(dir,dest);
 
     HRESULT hr=MFStartup(MF_VERSION); if(FAILED(hr)) return hr;
     IMFVirtualCamera* cam=nullptr;
@@ -125,8 +155,8 @@ static HRESULT RemoveCamera() {
     MFShutdown();
     UnregisterCom();
     wchar_t pf[MAX_PATH]{}; if(GetEnvironmentVariableW(L"ProgramFiles",pf,MAX_PATH)) {
-        std::filesystem::path dll=std::filesystem::path(pf)/L"PhoneBridge"/L"VirtualCameraMediaSource.dll";
-        if(!DeleteFileW(dll.c_str())) MoveFileExW(dll.c_str(),nullptr,MOVEFILE_DELAY_UNTIL_REBOOT);
+        std::filesystem::path dir=std::filesystem::path(pf)/L"PhoneBridge";
+        CleanupOldMediaSourceDlls(dir);
     }
     return hr;
 }
