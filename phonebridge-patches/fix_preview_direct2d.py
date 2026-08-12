@@ -9,6 +9,15 @@ if '#include <d2d1.h>' not in s:
 if '#pragma comment(lib,"d2d1.lib")' not in s:
     s=s.replace('#pragma comment(lib,"comctl32.lib")\n', '#pragma comment(lib,"comctl32.lib")\n#pragma comment(lib,"d2d1.lib")\n')
 
+# v1 helpers are injected later by upgrade_v1_windows.py. Some of them send
+# controls before the existing sendControl definition, so provide a harmless
+# forward declaration here while preserving the known-good renderer.
+if 'bool sendControl(const std::string& json);' not in s:
+    anchor='uint32_t be32(const uint8_t* p)'
+    pos=s.find(anchor)
+    if pos < 0: raise SystemExit('be32 anchor not found for sendControl declaration')
+    s=s[:pos]+'bool sendControl(const std::string& json);\n\n'+s[pos:]
+
 anchor='HWND g_zoom{};\n'
 insert='''HWND g_zoom{};\n\nID2D1Factory* g_d2dFactory=nullptr;\nID2D1HwndRenderTarget* g_d2dTarget=nullptr;\nID2D1Bitmap* g_d2dBitmap=nullptr;\nuint32_t g_d2dBitmapW=0, g_d2dBitmapH=0;\nstd::atomic<bool> g_decodedBmpSaved{false};\n'''
 if 'g_d2dFactory' not in s:
