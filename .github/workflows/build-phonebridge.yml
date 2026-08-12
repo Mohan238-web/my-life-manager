@@ -19,10 +19,15 @@ jobs:
           cat phonebridge-source/p1-0.b64 phonebridge-source/p1-1.b64 phonebridge-source/p1-2.b64 phonebridge-source/p1-3.b64 phonebridge-source/part2.b64 phonebridge-source/p3-0.b64 phonebridge-source/p3-1.b64 phonebridge-source/p3-2.b64 phonebridge-source/p3-3.b64 phonebridge-source/part4.b64 | base64 -d > PhoneBridge-source.rebuilt.zip
           unzip -t PhoneBridge-source.rebuilt.zip
           unzip -q PhoneBridge-source.rebuilt.zip
-      - name: Apply control patches
+      - name: Apply control and CameraX lifecycle patches
         run: |
           cp phonebridge-patches/StreamService.java PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
-          sed -i 's/if (streaming.get()) restartCamera();/if (streaming.get() \&\& videoEnabled) restartCamera();/g' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          python phonebridge-patches/fix_camera_main_thread.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          grep -q 'ContextCompat.getMainExecutor(this)' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          if grep -q 'future.addListener.*cameraExecutor' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java; then
+            echo 'CameraX lifecycle is still using background executor' >&2
+            exit 1
+          fi
       - name: Pin stable Android API
         run: |
           sed -i 's/compileSdk = 37/compileSdk = 36/' PhoneBridge/android/app/build.gradle.kts
