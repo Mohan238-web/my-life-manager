@@ -4,6 +4,11 @@ set(CMAKE_CXX_STANDARD 20)
 if(MSVC)
   set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
+
 add_executable(PhoneBridgeVirtualCameraSetup WIN32 PhoneBridgeVirtualCameraSetup.cpp)
 target_compile_definitions(PhoneBridgeVirtualCameraSetup PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_link_libraries(PhoneBridgeVirtualCameraSetup PRIVATE mfplat mfuuid mfsensorgroup advapi32 shell32 ole32)
+
+add_executable(PhoneBridgeComProbe PhoneBridgeComProbe.cpp)
+target_compile_definitions(PhoneBridgeComProbe PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_link_libraries(PhoneBridgeComProbe PRIVATE ole32)
