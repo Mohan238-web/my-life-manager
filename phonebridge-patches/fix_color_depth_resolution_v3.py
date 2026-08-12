@@ -8,12 +8,13 @@ s = p.read_text(encoding='utf-8')
 if 'import androidx.camera.core.resolutionselector.ResolutionSelector;\n' not in s:
     s = s.replace('import androidx.camera.core.UseCase;\n',
                   'import androidx.camera.core.UseCase;\n'
+                  'import androidx.camera.core.resolutionselector.AspectRatioStrategy;\n'
                   'import androidx.camera.core.resolutionselector.ResolutionSelector;\n'
                   'import androidx.camera.core.resolutionselector.ResolutionStrategy;\n')
 
 # Avoid the oversized square mode observed on-device. Use a bounded 16:9 analysis stream.
 old_resolution = '''                ImageAnalysis analysis = new ImageAnalysis.Builder()\n                        .setTargetResolution(new Size(1280, 720))\n                        .setTargetRotation(targetRotation)\n'''
-new_resolution = '''                ResolutionSelector resolutionSelector = new ResolutionSelector.Builder()\n                        .setResolutionStrategy(new ResolutionStrategy(\n                                new Size(1280, 720),\n                                ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER))\n                        .build();\n\n                ImageAnalysis analysis = new ImageAnalysis.Builder()\n                        .setResolutionSelector(resolutionSelector)\n                        .setTargetRotation(targetRotation)\n'''
+new_resolution = '''                ResolutionSelector resolutionSelector = new ResolutionSelector.Builder()\n                        .setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY)\n                        .setResolutionStrategy(new ResolutionStrategy(\n                                new Size(1280, 720),\n                                ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER))\n                        .build();\n\n                ImageAnalysis analysis = new ImageAnalysis.Builder()\n                        .setResolutionSelector(resolutionSelector)\n                        .setTargetRotation(targetRotation)\n'''
 if old_resolution not in s:
     raise SystemExit('Expected CameraX target-resolution block not found')
 s = s.replace(old_resolution, new_resolution)
