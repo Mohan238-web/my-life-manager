@@ -23,7 +23,7 @@ jobs:
       - name: Restore NuGet packages
         shell: pwsh
         run: nuget restore windows-camera/Samples/VirtualCamera/VirtualCameraSample.sln -PackagesDirectory windows-camera/Samples/VirtualCamera/packages -NonInteractive
-      - name: Patch frame source to PhoneBridge shared memory
+      - name: Patch frame source and PhoneBridge COM CLSID
         shell: pwsh
         run: python phonebridge-vcam/patch_vcam.py windows-camera/Samples/VirtualCamera/VirtualCameraMediaSource/SimpleFrameGenerator.cpp
       - name: Locate MSBuild
@@ -37,11 +37,18 @@ jobs:
         shell: pwsh
         run: |
           & "$env:MSBUILD" windows-camera/Samples/VirtualCamera/VirtualCameraMediaSource/VirtualCameraMediaSource.vcxproj /m /p:Configuration=Release /p:Platform=x64 /p:SolutionDir="$PWD\windows-camera\Samples\VirtualCamera\" /verbosity:minimal
-      - name: Build PhoneBridge virtual camera setup
+      - name: Build PhoneBridge virtual camera setup and COM probe
         shell: pwsh
         run: |
           cmake -S phonebridge-vcam -B phonebridge-vcam/build -A x64
           cmake --build phonebridge-vcam/build --config Release
+      - name: Verify PhoneBridge COM class factory
+        shell: pwsh
+        run: |
+          $dll = Get-ChildItem windows-camera -Recurse -Filter VirtualCameraMediaSource.dll | Select-Object -First 1
+          if (-not $dll) { throw 'VirtualCameraMediaSource.dll not produced' }
+          & phonebridge-vcam/build/Release/PhoneBridgeComProbe.exe $dll.FullName
+          if ($LASTEXITCODE -ne 0) { throw "PhoneBridge COM class-factory probe failed with exit code $LASTEXITCODE" }
       - name: Package PhoneBridge Camera
         shell: pwsh
         run: |
