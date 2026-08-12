@@ -74,7 +74,7 @@ jobs:
           if-no-files-found: error
 
   windows:
-    name: Windows TurboJPEG Receiver
+    name: Windows Direct2D TurboJPEG Receiver
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -92,7 +92,7 @@ jobs:
           $prefix = Join-Path $PWD 'libjpeg-install'
           cmake -S libjpeg-turbo -B libjpeg-build -A x64 -DENABLE_SHARED=OFF -DENABLE_STATIC=ON -DWITH_TURBOJPEG=ON -DWITH_TOOLS=OFF -DWITH_TESTS=OFF -DWITH_SIMD=OFF -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded "-DCMAKE_INSTALL_PREFIX=$prefix"
           cmake --build libjpeg-build --config Release --target install
-      - name: Apply TurboJPEG receiver and diagnostic patches
+      - name: Apply TurboJPEG Direct2D receiver patches
         shell: pwsh
         run: |
           Copy-Item phonebridge-patches/Receiver.cpp PhoneBridge/windows/native/Receiver.cpp -Force
@@ -103,9 +103,13 @@ jobs:
           Copy-Item phonebridge-patches/SharedBus.cpp PhoneBridge/windows/native/SharedBus.cpp -Force
           Copy-Item phonebridge-patches/SharedBus.h PhoneBridge/windows/native/SharedBus.h -Force
           python phonebridge-patches/add_raw_jpeg_diagnostic.py PhoneBridge/windows/native/Receiver.cpp
+          python phonebridge-patches/fix_preview_direct2d.py PhoneBridge/windows/native/Receiver.cpp
           Select-String -Path PhoneBridge/windows/native/JpegDecoder.cpp -Pattern 'tjDecompress2' -Quiet | ForEach-Object { if (-not $_) { throw 'TurboJPEG decoder missing' } }
           Select-String -Path PhoneBridge/windows/native/JpegDecoder.cpp -Pattern 'TJPF_BGRA' -Quiet | ForEach-Object { if (-not $_) { throw 'Explicit BGRA output missing' } }
-          Select-String -Path PhoneBridge/windows/native/Receiver.cpp -Pattern 'PhoneBridge-Raw-Frame.jpg' -Quiet | ForEach-Object { if (-not $_) { throw 'Raw JPEG diagnostic missing' } }
+          Select-String -Path PhoneBridge/windows/native/Receiver.cpp -Pattern 'D2D1CreateFactory' -Quiet | ForEach-Object { if (-not $_) { throw 'Direct2D renderer missing' } }
+          Select-String -Path PhoneBridge/windows/native/Receiver.cpp -Pattern 'DXGI_FORMAT_B8G8R8A8_UNORM' -Quiet | ForEach-Object { if (-not $_) { throw 'Explicit Direct2D BGRA8 format missing' } }
+          Select-String -Path PhoneBridge/windows/native/Receiver.cpp -Pattern 'PhoneBridge-Decoded-Frame.bmp' -Quiet | ForEach-Object { if (-not $_) { throw 'Decoded frame diagnostic missing' } }
+          if (Select-String -Path PhoneBridge/windows/native/Receiver.cpp -Pattern 'StretchDIBits\(' -Quiet) { throw 'Legacy GDI StretchDIBits renderer still present' }
       - name: Configure PhoneBridge
         shell: pwsh
         run: |
@@ -119,6 +123,6 @@ jobs:
         run: PhoneBridge/windows/build/Release/PhoneBridgeDecoderSelfTest.exe
       - uses: actions/upload-artifact@v4
         with:
-          name: PhoneBridge-Windows-TurboJPEG-Receiver
+          name: PhoneBridge-Windows-Direct2D-TurboJPEG-Receiver
           path: PhoneBridge/windows/build/Release/PhoneBridgeReceiver.exe
           if-no-files-found: error
