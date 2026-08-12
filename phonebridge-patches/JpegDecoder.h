@@ -1,4 +1,7 @@
 #pragma once
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <objbase.h>
 #include <cstddef>
 #include <cstdint>
