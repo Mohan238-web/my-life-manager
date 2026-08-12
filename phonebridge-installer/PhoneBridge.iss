@@ -39,14 +39,14 @@ Name: "{autodesktop}\PhoneBridge"; Filename: "{app}\PhoneBridge.exe"; Tasks: des
 Name: "{autoprograms}\PhoneBridge\Android APK folder"; Filename: "{app}\Android"
 
 [Registry]
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "PhoneBridge"; ValueData: "\"{app}\PhoneBridge.exe\""; Tasks: startup; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "PhoneBridge"; ValueData: """{app}\PhoneBridge.exe"""; Tasks: startup; Flags: uninsdeletevalue
 
 [Run]
 Filename: "{app}\Camera\PhoneBridgeVirtualCameraSetup.exe"; Parameters: "/install /silent"; StatusMsg: "Installing PhoneBridge Camera..."; Flags: waituntilterminated runhidden
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=\"PhoneBridge\""; Flags: runhidden waituntilterminated
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=\"PhoneBridge\" dir=in action=allow program=\"{app}\PhoneBridge.exe\" enable=yes profile=private"; StatusMsg: "Allowing PhoneBridge on private networks..."; Flags: runhidden waituntilterminated
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""PhoneBridge"""; Flags: runhidden waituntilterminated
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""PhoneBridge"" dir=in action=allow program=""{app}\PhoneBridge.exe"" enable=yes profile=private"; StatusMsg: "Allowing PhoneBridge on private networks..."; Flags: runhidden waituntilterminated
 Filename: "{app}\PhoneBridge.exe"; Description: "Launch PhoneBridge"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
 Filename: "{app}\Camera\PhoneBridgeVirtualCameraSetup.exe"; Parameters: "/uninstall /silent"; Flags: runhidden waituntilterminated; RunOnceId: "RemovePhoneBridgeCamera"
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=\"PhoneBridge\""; Flags: runhidden waituntilterminated; RunOnceId: "RemovePhoneBridgeFirewall"
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""PhoneBridge"""; Flags: runhidden waituntilterminated; RunOnceId: "RemovePhoneBridgeFirewall"
