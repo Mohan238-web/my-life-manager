@@ -16,7 +16,7 @@
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "ole32.lib")
 
-static constexpr wchar_t kClsid[] = L"{7B89B92E-FE71-42D0-8A41-E137D06EA184}";
+static constexpr wchar_t kClsid[] = L"{A7318E11-4B4C-4BCC-A19F-FA192BA8BA5D}";
 static constexpr wchar_t kFriendly[] = L"PhoneBridge Camera";
 // VCAM_KIND = {C7F7C57B-DF30-41D0-AFFC-15201CDF920D}
 static const GUID VCAM_KIND_PB = {0xc7f7c57b,0xdf30,0x41d0,{0xaf,0xfc,0x15,0x20,0x1c,0xdf,0x92,0x0d}};
@@ -60,27 +60,41 @@ static HRESULT PrepareSharedBusDirectory() {
     std::error_code ec; std::filesystem::create_directories(dir,ec);
 
     PSECURITY_DESCRIPTOR sd=nullptr;
-    // Users: read/write; Local Service: read; SYSTEM/Admins: full control.
+    // SYSTEM/Admins: full control; Users: read/write; Local Service (Frame Server): read.
     if(!ConvertStringSecurityDescriptorToSecurityDescriptorW(
         L"D:P(A;OICI;GA;;;SY)(A;OICI;GA;;;BA)(A;OICI;GRGW;;;BU)(A;OICI;GR;;;LS)",
         SDDL_REVISION_1,&sd,nullptr)) return HRESULT_FROM_WIN32(GetLastError());
     PACL dacl=nullptr; BOOL present=FALSE, defaulted=FALSE;
     if(!GetSecurityDescriptorDacl(sd,&present,&dacl,&defaulted) || !present){ LocalFree(sd); return E_FAIL; }
-    std::wstring dirText=dir.wstring();
-    DWORD er=SetNamedSecurityInfoW(dirText.data(),SE_FILE_OBJECT,DACL_SECURITY_INFORMATION|PROTECTED_DACL_SECURITY_INFORMATION,
-        nullptr,nullptr,dacl,nullptr);
-    LocalFree(sd); if(er!=ERROR_SUCCESS) return HRESULT_FROM_WIN32(er);
+
+    auto applySecurity=[&](const std::filesystem::path& path)->HRESULT {
+        std::wstring text=path.wstring();
+        DWORD er=SetNamedSecurityInfoW(text.data(),SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION|PROTECTED_DACL_SECURITY_INFORMATION,
+            nullptr,nullptr,dacl,nullptr);
+        return er==ERROR_SUCCESS?S_OK:HRESULT_FROM_WIN32(er);
+    };
+    HRESULT hr=applySecurity(dir); if(FAILED(hr)){ LocalFree(sd); return hr; }
 
     auto makeFile=[&](const wchar_t* name, ULONGLONG bytes)->HRESULT {
         std::filesystem::path path=dir/name;
         HANDLE f=CreateFileW(path.c_str(),GENERIC_READ|GENERIC_WRITE,FILE_SHARE_READ|FILE_SHARE_WRITE,nullptr,OPEN_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
         if(f==INVALID_HANDLE_VALUE) return HRESULT_FROM_WIN32(GetLastError());
-        LARGE_INTEGER size{}; size.QuadPart=(LONGLONG)bytes;
-        BOOL ok=SetFilePointerEx(f,size,nullptr,FILE_BEGIN) && SetEndOfFile(f);
-        CloseHandle(f); return ok?S_OK:HRESULT_FROM_WIN32(GetLastError());
+        LARGE_INTEGER actual{}; GetFileSizeEx(f,&actual);
+        BOOL ok=TRUE;
+        if(actual.QuadPart < (LONGLONG)bytes){
+            LARGE_INTEGER size{}; size.QuadPart=(LONGLONG)bytes;
+            ok=SetFilePointerEx(f,size,nullptr,FILE_BEGIN) && SetEndOfFile(f);
+        }
+        DWORD last=ok?ERROR_SUCCESS:GetLastError();
+        CloseHandle(f);
+        if(!ok) return HRESULT_FROM_WIN32(last);
+        return applySecurity(path); // Repair ACL even if receiver created this file earlier.
     };
-    HRESULT hr=makeFile(L"video.bus",3840ull*2160ull*4ull+4096ull); if(FAILED(hr)) return hr;
-    return makeFile(L"audio.bus",2ull*1024ull*1024ull);
+    hr=makeFile(L"video.bus",3840ull*2160ull*4ull+4096ull); if(FAILED(hr)){ LocalFree(sd); return hr; }
+    hr=makeFile(L"audio.bus",2ull*1024ull*1024ull);
+    LocalFree(sd);
+    return hr;
 }
 
 static HRESULT InstallCamera() {

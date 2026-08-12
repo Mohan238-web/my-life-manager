@@ -99,3 +99,12 @@ replacement = r'''HRESULT SimpleFrameGenerator::_CreateRGB32Frame(
 s = s[:start] + replacement + s[end:]
 p.write_text(s, encoding='utf-8')
 print(f'Patched {p}')
+
+# Give PhoneBridge its own media-source CLSID rather than reusing Microsoft's sample CLSID.
+header = p.parent / 'VirtualCameraMediaSource.h'
+hs = header.read_text(encoding='utf-8-sig')
+hs = hs.replace('0x7b89b92e, 0xfe71, 0x42d0, 0x8a, 0x41, 0xe1, 0x37, 0xd0, 0x6e, 0xa1, 0x84',
+                '0xa7318e11, 0x4b4c, 0x4bcc, 0xa1, 0x9f, 0xfa, 0x19, 0x2b, 0xa8, 0xba, 0x5d')
+hs = hs.replace('{7B89B92E-FE71-42D0-8A41-E137D06EA184}', '{A7318E11-4B4C-4BCC-A19F-FA192BA8BA5D}')
+header.write_text(hs, encoding='utf-8')
+print(f'Patched PhoneBridge CLSID in {header}')
