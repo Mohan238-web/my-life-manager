@@ -19,6 +19,10 @@ jobs:
           cat phonebridge-source/p1-0.b64 phonebridge-source/p1-1.b64 phonebridge-source/p1-2.b64 phonebridge-source/p1-3.b64 phonebridge-source/part2.b64 phonebridge-source/p3-0.b64 phonebridge-source/p3-1.b64 phonebridge-source/p3-2.b64 phonebridge-source/p3-3.b64 phonebridge-source/part4.b64 | base64 -d > PhoneBridge-source.rebuilt.zip
           unzip -t PhoneBridge-source.rebuilt.zip
           unzip -q PhoneBridge-source.rebuilt.zip
+      - name: Apply control patches
+        run: |
+          cp phonebridge-patches/StreamService.java PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          sed -i 's/if (streaming.get()) restartCamera();/if (streaming.get() \&\& videoEnabled) restartCamera();/g' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
       - name: Pin stable Android API
         run: |
           sed -i 's/compileSdk = 37/compileSdk = 36/' PhoneBridge/android/app/build.gradle.kts
@@ -39,12 +43,12 @@ jobs:
         run: gradle -p PhoneBridge/android --stacktrace assembleDebug
       - uses: actions/upload-artifact@v4
         with:
-          name: PhoneBridge-Android-APK
+          name: PhoneBridge-Android-Control-APK
           path: PhoneBridge/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
   windows:
-    name: Windows Receiver
+    name: Windows Control Receiver
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -55,6 +59,11 @@ jobs:
           $b64 = ($names | ForEach-Object { Get-Content "phonebridge-source/$_.b64" -Raw }) -join ''
           [IO.File]::WriteAllBytes('PhoneBridge-source.rebuilt.zip', [Convert]::FromBase64String($b64))
           Expand-Archive -Path PhoneBridge-source.rebuilt.zip -DestinationPath . -Force
+      - name: Apply control patches
+        shell: pwsh
+        run: |
+          Copy-Item phonebridge-patches/Receiver.cpp PhoneBridge/windows/native/Receiver.cpp -Force
+          Copy-Item phonebridge-patches/CMakeLists.txt PhoneBridge/windows/native/CMakeLists.txt -Force
       - name: Configure
         shell: pwsh
         run: cmake -S PhoneBridge/windows/native -B PhoneBridge/windows/build -A x64
@@ -63,6 +72,6 @@ jobs:
         run: cmake --build PhoneBridge/windows/build --config Release
       - uses: actions/upload-artifact@v4
         with:
-          name: PhoneBridge-Windows-Receiver
+          name: PhoneBridge-Windows-Control-Receiver
           path: PhoneBridge/windows/build/Release/PhoneBridgeReceiver.exe
           if-no-files-found: error
