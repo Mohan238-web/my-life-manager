@@ -27,17 +27,22 @@ jobs:
           python phonebridge-patches/fix_av_quality.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
           python phonebridge-patches/fix_color_rotation_v2.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
           python phonebridge-patches/fix_color_depth_resolution_v3.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          python phonebridge-patches/fix_standard_nv21_v4.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
           grep -q 'ContextCompat.getMainExecutor(this)' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
-          grep -q 'OUTPUT_IMAGE_FORMAT_RGBA_8888' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
-          grep -q 'Bitmap.Config.ARGB_8888' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
-          grep -q 'rgbaPlaneToArgb8888' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          grep -q 'OUTPUT_IMAGE_FORMAT_NV21' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          grep -q 'fromCameraXStandardNv21' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          grep -q 'fromCameraXStandardNv21' PhoneBridge/android/app/src/main/java/com/phonebridge/app/YuvTools.java
           grep -q 'ResolutionSelector' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
           grep -q 'FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
           grep -q 'OrientationEventListener' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
           grep -q 'UseCase.snapToSurfaceRotation' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
           grep -q 'NoiseSuppressor.isAvailable()' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
-          if grep -q 'image.toBitmap()' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java; then
-            echo 'Ambiguous ImageProxy.toBitmap color path still present' >&2
+          if grep -q '\.setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java; then
+            echo 'Active CameraX RGBA output path still present' >&2
+            exit 1
+          fi
+          if grep -q 'Bitmap source = rgbaPlaneToArgb8888(image)' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java; then
+            echo 'Active ARGB frame conversion still present' >&2
             exit 1
           fi
           if grep -q 'future.addListener.*cameraExecutor' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java; then
@@ -64,12 +69,12 @@ jobs:
         run: gradle -p PhoneBridge/android --stacktrace assembleDebug
       - uses: actions/upload-artifact@v4
         with:
-          name: PhoneBridge-Android-Control-APK
+          name: PhoneBridge-Android-NV21-APK
           path: PhoneBridge/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
   windows:
-    name: Windows Control Receiver
+    name: Windows Diagnostic Receiver
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -80,7 +85,7 @@ jobs:
           $b64 = ($names | ForEach-Object { Get-Content "phonebridge-source/$_.b64" -Raw }) -join ''
           [IO.File]::WriteAllBytes('PhoneBridge-source.rebuilt.zip', [Convert]::FromBase64String($b64))
           Expand-Archive -Path PhoneBridge-source.rebuilt.zip -DestinationPath . -Force
-      - name: Apply control, color-decode and cross-session bus patches
+      - name: Apply receiver and untouched-JPEG diagnostic patches
         shell: pwsh
         run: |
           Copy-Item phonebridge-patches/Receiver.cpp PhoneBridge/windows/native/Receiver.cpp -Force
@@ -88,8 +93,10 @@ jobs:
           Copy-Item phonebridge-patches/CMakeLists.txt PhoneBridge/windows/native/CMakeLists.txt -Force
           Copy-Item phonebridge-patches/SharedBus.cpp PhoneBridge/windows/native/SharedBus.cpp -Force
           Copy-Item phonebridge-patches/SharedBus.h PhoneBridge/windows/native/SharedBus.h -Force
+          python phonebridge-patches/add_raw_jpeg_diagnostic.py PhoneBridge/windows/native/Receiver.cpp
           Select-String -Path PhoneBridge/windows/native/JpegDecoder.cpp -Pattern 'GUID_WICPixelFormat24bppBGR' -Quiet | ForEach-Object { if (-not $_) { throw '24bpp BGR decoder patch missing' } }
-          Select-String -Path PhoneBridge/windows/native/JpegDecoder.cpp -Pattern 'dst\[x \* 4 \+ 3\] = 255' -Quiet | ForEach-Object { if (-not $_) { throw 'Explicit BGRA expansion missing' } }
+          Select-String -Path PhoneBridge/windows/native/Receiver.cpp -Pattern 'PhoneBridge-Raw-Frame.jpg' -Quiet | ForEach-Object { if (-not $_) { throw 'Raw JPEG diagnostic missing' } }
+          Select-String -Path PhoneBridge/windows/native/Receiver.cpp -Pattern 'saveRawJpegOnce\(payload\)' -Quiet | ForEach-Object { if (-not $_) { throw 'Raw JPEG capture call missing' } }
       - name: Configure
         shell: pwsh
         run: cmake -S PhoneBridge/windows/native -B PhoneBridge/windows/build -A x64
@@ -98,6 +105,6 @@ jobs:
         run: cmake --build PhoneBridge/windows/build --config Release
       - uses: actions/upload-artifact@v4
         with:
-          name: PhoneBridge-Windows-Control-Receiver
+          name: PhoneBridge-Windows-Diagnostic-Receiver
           path: PhoneBridge/windows/build/Release/PhoneBridgeReceiver.exe
           if-no-files-found: error
