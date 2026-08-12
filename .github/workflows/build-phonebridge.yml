@@ -1,0 +1,55 @@
+name: Build PhoneBridge
+
+on:
+  push:
+    branches: [phonebridge-build]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unpack PhoneBridge
+        run: unzip -q PhoneBridge-source.zip
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK
+        run: sdkmanager 'platform-tools' 'platforms;android-37' 'build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+      - name: Build APK
+        run: gradle -p PhoneBridge/android --stacktrace assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhoneBridge-Android-APK
+          path: PhoneBridge/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+  windows:
+    name: Windows Receiver
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unpack PhoneBridge
+        shell: pwsh
+        run: Expand-Archive -Path PhoneBridge-source.zip -DestinationPath . -Force
+      - name: Configure
+        shell: pwsh
+        run: cmake -S PhoneBridge/windows/native -B PhoneBridge/windows/build -A x64
+      - name: Build
+        shell: pwsh
+        run: cmake --build PhoneBridge/windows/build --config Release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhoneBridge-Windows-Receiver
+          path: PhoneBridge/windows/build/Release/PhoneBridgeReceiver.exe
+          if-no-files-found: error
