@@ -26,12 +26,20 @@ jobs:
           python phonebridge-patches/fix_camera_main_thread.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
           python phonebridge-patches/fix_av_quality.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
           python phonebridge-patches/fix_color_rotation_v2.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          python phonebridge-patches/fix_color_depth_resolution_v3.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
           grep -q 'ContextCompat.getMainExecutor(this)' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
           grep -q 'OUTPUT_IMAGE_FORMAT_RGBA_8888' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
-          grep -q 'image.toBitmap()' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          grep -q 'Bitmap.Config.ARGB_8888' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          grep -q 'rgbaPlaneToArgb8888' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          grep -q 'ResolutionSelector' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          grep -q 'FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
           grep -q 'OrientationEventListener' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
           grep -q 'UseCase.snapToSurfaceRotation' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
           grep -q 'NoiseSuppressor.isAvailable()' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          if grep -q 'image.toBitmap()' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java; then
+            echo 'Ambiguous ImageProxy.toBitmap color path still present' >&2
+            exit 1
+          fi
           if grep -q 'future.addListener.*cameraExecutor' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java; then
             echo 'CameraX lifecycle is still using background executor' >&2
             exit 1
