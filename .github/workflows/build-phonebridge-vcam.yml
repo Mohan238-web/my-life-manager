@@ -1,0 +1,50 @@
+name: Build PhoneBridge Virtual Camera
+
+on:
+  push:
+    branches: [phonebridge-build]
+    paths:
+      - '.github/workflows/build-phonebridge-vcam.yml'
+      - 'phonebridge-vcam/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  vcam:
+    name: Windows Virtual Camera Probe
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone Microsoft camera sample
+        shell: pwsh
+        run: git clone --depth 1 https://github.com/microsoft/Windows-Camera.git windows-camera
+      - name: Restore NuGet packages
+        shell: pwsh
+        run: nuget restore windows-camera/Samples/VirtualCamera/VirtualCameraSample.sln -PackagesDirectory windows-camera/Samples/VirtualCamera/packages -NonInteractive
+      - name: Locate MSBuild
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
+          if (-not $msbuild) { throw 'MSBuild not found' }
+          "MSBUILD=$msbuild" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "Using $msbuild"
+      - name: Build Microsoft virtual camera media source
+        shell: pwsh
+        run: |
+          & "$env:MSBUILD" windows-camera/Samples/VirtualCamera/VirtualCameraMediaSource/VirtualCameraMediaSource.vcxproj /m /p:Configuration=Release /p:Platform=x64 /p:SolutionDir="$PWD\windows-camera\Samples\VirtualCamera\" /verbosity:minimal
+      - name: Collect virtual camera DLL
+        shell: pwsh
+        run: |
+          $dll = Get-ChildItem windows-camera -Recurse -Filter VirtualCameraMediaSource.dll | Select-Object -First 1
+          if (-not $dll) { throw 'VirtualCameraMediaSource.dll not produced' }
+          New-Item -ItemType Directory -Force phonebridge-vcam-out | Out-Null
+          Copy-Item $dll.FullName phonebridge-vcam-out/VirtualCameraMediaSource.dll
+          Write-Host "DLL: $($dll.FullName)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhoneBridge-VirtualCamera-Probe
+          path: phonebridge-vcam-out/VirtualCameraMediaSource.dll
+          if-no-files-found: error
