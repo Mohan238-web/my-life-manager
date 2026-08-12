@@ -6,7 +6,7 @@ s = p.read_text(encoding='utf-8')
 
 s = s.replace(
     'std::wstring g_expectedPin;\n',
-    'std::wstring g_expectedPin;\nstd::atomic<bool> g_rawJpegSaved{false};\n')
+    'std::wstring g_expectedPin;\nstd::atomic<bool> g_rawJpegSaved{false};\nvoid postText(UINT msg, const std::wstring& text);\n')
 
 anchor = 'std::wstring randomPin(){ std::random_device rd; std::mt19937 gen(rd()); std::uniform_int_distribution<int> d(0,999999); wchar_t b[7]; swprintf_s(b,L"%06d",d(gen)); return b; }\n\n'
 helper = r'''void saveRawJpegOnce(const std::vector<uint8_t>& payload){
@@ -47,7 +47,6 @@ if anchor not in s:
     raise SystemExit('randomPin anchor not found')
 s = s.replace(anchor, anchor + helper, 1)
 
-# Reset capture for each fresh phone connection.
 s = s.replace(
     'g_paired=false; std::string device="Phone"; uint64_t frames=0;',
     'g_paired=false; g_rawJpegSaved=false; std::string device="Phone"; uint64_t frames=0;')
