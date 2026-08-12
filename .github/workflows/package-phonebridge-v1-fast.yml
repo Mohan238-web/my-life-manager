@@ -1,0 +1,110 @@
+name: Package PhoneBridge v1 Fast
+
+on:
+  push:
+    branches: [phonebridge-build]
+    paths:
+      - '.github/workflows/package-phonebridge-v1-fast.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  package:
+    name: Package validated PhoneBridge v1
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download validated v1 Android artifact
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: Mohan238-web/my-life-manager
+          run-id: 31598116099
+          name: PhoneBridge-Android-v1-APK
+          path: validated/android
+
+      - name: Download validated v1 Windows receiver
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: Mohan238-web/my-life-manager
+          run-id: 31598116099
+          name: PhoneBridge-Windows-v1-Receiver
+          path: validated/windows
+
+      - name: Download validated virtual camera package
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: Mohan238-web/my-life-manager
+          run-id: 31573415584
+          name: PhoneBridge-Windows-Virtual-Camera
+          path: validated/vcam
+
+      - name: Build silent camera setup from validated camera source
+        shell: pwsh
+        run: |
+          python phonebridge-installer/patch_vcam_silent.py phonebridge-vcam/PhoneBridgeVirtualCameraSetup.cpp
+          cmake -S phonebridge-vcam -B phonebridge-vcam/fast-build -A x64
+          cmake --build phonebridge-vcam/fast-build --config Release --target PhoneBridgeVirtualCameraSetup
+          if (-not (Test-Path phonebridge-vcam/fast-build/Release/PhoneBridgeVirtualCameraSetup.exe)) { throw 'Silent camera setup not produced' }
+
+      - name: Prepare installer payload
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force phonebridge-installer/payload | Out-Null
+          $receiver = Get-ChildItem validated/windows -Recurse -Filter '*.exe' | Select-Object -First 1
+          $apk = Get-ChildItem validated/android -Recurse -Filter '*.apk' | Select-Object -First 1
+          $dll = Get-ChildItem validated/vcam -Recurse -Filter 'VirtualCameraMediaSource.dll' | Select-Object -First 1
+          if (-not $receiver -or -not $apk -or -not $dll) { throw 'Validated artifact payload is incomplete' }
+          Copy-Item $receiver.FullName phonebridge-installer/payload/PhoneBridge.exe
+          Copy-Item $apk.FullName phonebridge-installer/payload/PhoneBridge-v1.apk
+          Copy-Item $dll.FullName phonebridge-installer/payload/VirtualCameraMediaSource.dll
+          Copy-Item phonebridge-vcam/fast-build/Release/PhoneBridgeVirtualCameraSetup.exe phonebridge-installer/payload/PhoneBridgeVirtualCameraSetup.exe
+          @'
+          PhoneBridge v1.0 beta
+
+          This package reuses the individually validated Android v1 APK, Windows v1 Direct2D receiver,
+          and the validated PhoneBridge virtual-camera DLL. Only the setup wrapper is rebuilt for silent installer use.
+
+          Proven camera path retained:
+          CameraX NV21 -> JPEG -> libjpeg-turbo BGRA -> Direct2D -> PhoneBridge Camera.
+
+          New v1 features include remembered pairing/auto reconnect, quality/FPS controls,
+          snapshots, MP4 recording, and optional Start with Windows.
+
+          This beta package is not commercially code-signed. The Android APK is debug-signed.
+          '@ | Set-Content phonebridge-installer/payload/README.txt
+          Get-FileHash phonebridge-installer/payload/PhoneBridge.exe -Algorithm SHA256
+          Get-FileHash phonebridge-installer/payload/PhoneBridge-v1.apk -Algorithm SHA256
+          Get-FileHash phonebridge-installer/payload/VirtualCameraMediaSource.dll -Algorithm SHA256
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
+      - name: Build PhoneBridge v1 installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            $cmd = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+            if ($cmd) { $iscc=$cmd.Source }
+          }
+          if (-not (Test-Path $iscc)) { throw 'Inno Setup compiler not found' }
+          & $iscc phonebridge-installer/PhoneBridge.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Installer build failed' }
+          Get-FileHash phonebridge-installer/out/PhoneBridge-v1.0-Setup.exe -Algorithm SHA256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhoneBridge-v1-Fast-Validated-Package
+          path: |
+            phonebridge-installer/out/PhoneBridge-v1.0-Setup.exe
+            phonebridge-installer/payload/PhoneBridge-v1.apk
+            phonebridge-installer/payload/README.txt
+          if-no-files-found: error
