@@ -19,13 +19,19 @@ jobs:
           cat phonebridge-source/p1-0.b64 phonebridge-source/p1-1.b64 phonebridge-source/p1-2.b64 phonebridge-source/p1-3.b64 phonebridge-source/part2.b64 phonebridge-source/p3-0.b64 phonebridge-source/p3-1.b64 phonebridge-source/p3-2.b64 phonebridge-source/p3-3.b64 phonebridge-source/part4.b64 | base64 -d > PhoneBridge-source.rebuilt.zip
           unzip -t PhoneBridge-source.rebuilt.zip
           unzip -q PhoneBridge-source.rebuilt.zip
+      - name: Pin stable Android API
+        run: |
+          sed -i 's/compileSdk = 37/compileSdk = 36/' PhoneBridge/android/app/build.gradle.kts
+          sed -i 's/targetSdk = 37/targetSdk = 36/' PhoneBridge/android/app/build.gradle.kts
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - name: Install Android SDK
-        run: sdkmanager 'platform-tools' 'platforms;android-37' 'build-tools;36.0.0'
+        run: sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.5.0'
