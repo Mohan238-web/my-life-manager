@@ -14,8 +14,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Unpack PhoneBridge
-        run: unzip -q PhoneBridge-source.zip
+      - name: Rebuild PhoneBridge source archive
+        run: |
+          cat phonebridge-source/part1.b64 phonebridge-source/part2.b64 phonebridge-source/part3.b64 phonebridge-source/part4.b64 | base64 -d > PhoneBridge-source.rebuilt.zip
+          unzip -t PhoneBridge-source.rebuilt.zip
+          unzip -q PhoneBridge-source.rebuilt.zip
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -39,9 +42,12 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Unpack PhoneBridge
+      - name: Rebuild PhoneBridge source archive
         shell: pwsh
-        run: Expand-Archive -Path PhoneBridge-source.zip -DestinationPath . -Force
+        run: |
+          $b64 = (Get-Content phonebridge-source/part1.b64 -Raw) + (Get-Content phonebridge-source/part2.b64 -Raw) + (Get-Content phonebridge-source/part3.b64 -Raw) + (Get-Content phonebridge-source/part4.b64 -Raw)
+          [IO.File]::WriteAllBytes('PhoneBridge-source.rebuilt.zip', [Convert]::FromBase64String($b64))
+          Expand-Archive -Path PhoneBridge-source.rebuilt.zip -DestinationPath . -Force
       - name: Configure
         shell: pwsh
         run: cmake -S PhoneBridge/windows/native -B PhoneBridge/windows/build -A x64
