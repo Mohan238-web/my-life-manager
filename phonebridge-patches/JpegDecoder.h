@@ -1,4 +1,5 @@
 #pragma once
+#include <objbase.h>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
