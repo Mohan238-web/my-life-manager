@@ -21,9 +21,13 @@ jobs:
         shell: pwsh
         run: git clone --depth 1 https://github.com/microsoft/Windows-driver-samples.git MicrosoftDriverSamples
 
-      - name: Apply PhoneBridge capture endpoint patch
+      - name: Normalize Microsoft INF source and apply PhoneBridge capture endpoint patch
         shell: pwsh
-        run: python phonebridge-mic-driver/patch_phonebridge_driver.py MicrosoftDriverSamples/audio/simpleaudiosample
+        run: |
+          $inx='MicrosoftDriverSamples/audio/simpleaudiosample/Source/Main/SimpleAudioSample.inx'
+          $text=Get-Content $inx -Raw -Encoding Unicode
+          [IO.File]::WriteAllText((Resolve-Path $inx),$text,[Text.UTF8Encoding]::new($false))
+          python phonebridge-mic-driver/patch_phonebridge_driver.py MicrosoftDriverSamples/audio/simpleaudiosample
 
       - name: Add current WDK NuGet toolset
         shell: pwsh
