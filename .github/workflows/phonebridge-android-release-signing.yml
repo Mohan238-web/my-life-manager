@@ -1,0 +1,108 @@
+name: PhoneBridge Android Release Signing
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android_release:
+    name: Build and sign Android release APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require release signing secrets
+        env:
+          KS: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KSP: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KP: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          test -n "$KS" || (echo 'ANDROID_KEYSTORE_BASE64 is not configured' >&2; exit 2)
+          test -n "$KSP" || (echo 'ANDROID_KEYSTORE_PASSWORD is not configured' >&2; exit 2)
+          test -n "$ALIAS" || (echo 'ANDROID_KEY_ALIAS is not configured' >&2; exit 2)
+          test -n "$KP" || (echo 'ANDROID_KEY_PASSWORD is not configured' >&2; exit 2)
+
+      - name: Rebuild PhoneBridge source and v1 patches
+        run: |
+          cat phonebridge-source/p1-0.b64 phonebridge-source/p1-1.b64 phonebridge-source/p1-2.b64 phonebridge-source/p1-3.b64 phonebridge-source/part2.b64 phonebridge-source/p3-0.b64 phonebridge-source/p3-1.b64 phonebridge-source/p3-2.b64 phonebridge-source/p3-3.b64 phonebridge-source/part4.b64 | base64 -d > PhoneBridge-source.rebuilt.zip
+          unzip -t PhoneBridge-source.rebuilt.zip
+          unzip -q PhoneBridge-source.rebuilt.zip
+          mkdir -p PhoneBridge-v1-patches
+          cat phonebridge-v1/v1patch-00.b64 phonebridge-v1/v1patch-01.b64 phonebridge-v1/v1patch-02.b64 | base64 -d > PhoneBridge-v1-patches.zip
+          unzip -t PhoneBridge-v1-patches.zip
+          unzip -q PhoneBridge-v1-patches.zip -d PhoneBridge-v1-patches
+
+      - name: Apply real-device validated Android media path
+        run: |
+          cp phonebridge-patches/StreamService.java PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          cp phonebridge-patches/YuvTools.java PhoneBridge/android/app/src/main/java/com/phonebridge/app/YuvTools.java
+          python phonebridge-patches/fix_camera_main_thread.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          python phonebridge-patches/fix_av_quality.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          python phonebridge-patches/fix_color_rotation_v2.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          python phonebridge-patches/fix_color_depth_resolution_v3.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          python phonebridge-patches/fix_standard_nv21_v4.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          cp PhoneBridge-v1-patches/MainActivityV1.java PhoneBridge/android/app/src/main/java/com/phonebridge/app/MainActivity.java
+          python PhoneBridge-v1-patches/upgrade_v1_android.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+
+          grep -q 'OUTPUT_IMAGE_FORMAT_NV21' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          grep -q 'OrientationEventListener' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          grep -q 'NoiseSuppressor.isAvailable()' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          if grep -q '\.setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)' PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java; then
+            echo 'Regression: old RGBA analysis path returned' >&2; exit 1
+          fi
+
+      - name: Pin Android API and release version
+        run: |
+          sed -i 's/compileSdk = 37/compileSdk = 36/' PhoneBridge/android/app/build.gradle.kts
+          sed -i 's/targetSdk = 37/targetSdk = 36/' PhoneBridge/android/app/build.gradle.kts
+          sed -i -E 's/versionCode = [0-9]+/versionCode = 11/' PhoneBridge/android/app/build.gradle.kts || true
+          sed -i -E 's/versionName = "[^"]+"/versionName = "1.1.0"/' PhoneBridge/android/app/build.gradle.kts || true
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK
+        run: sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+
+      - name: Build unsigned release APK
+        run: gradle -p PhoneBridge/android --stacktrace assembleRelease
+
+      - name: Sign and verify release APK
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/phonebridge-release.keystore"
+          unsigned=$(find PhoneBridge/android/app/build/outputs/apk/release -name '*unsigned*.apk' -o -name 'app-release.apk' | head -n 1)
+          test -f "$unsigned" || (echo 'Unsigned release APK not produced' >&2; exit 3)
+          mkdir -p release-out
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" sign \
+            --ks "$RUNNER_TEMP/phonebridge-release.keystore" \
+            --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass "pass:$KS_PASS" \
+            --key-pass "pass:$KEY_PASS" \
+            --out release-out/PhoneBridge-v1.1-release.apk "$unsigned"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs release-out/PhoneBridge-v1.1-release.apk
+          sha256sum release-out/PhoneBridge-v1.1-release.apk > release-out/PhoneBridge-v1.1-release.sha256
+          rm -f "$RUNNER_TEMP/phonebridge-release.keystore"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhoneBridge-Android-v1.1-Release-Signed
+          path: release-out/*
+          if-no-files-found: error
