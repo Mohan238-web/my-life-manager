@@ -95,18 +95,14 @@ if 'Local\\PhoneBridge-v1.1-SingleInstance' not in s:
     if count != 1:
         raise SystemExit('wWinMain anchor not found')
 
-# Log orderly shutdown and release the process mutex.
+# Log orderly shutdown and release the process mutex without assuming the v1.0
+# feature patch's exact cleanup order.
 if 'phoneBridgeLog(L"PhoneBridge shutting down")' not in s:
-    old = 'case WM_DESTROY:{ releaseD2DTarget();'
-    if old in s:
-        s = s.replace(old,
-            'case WM_DESTROY:{ phoneBridgeLog(L"PhoneBridge shutting down"); if(g_singleInstanceMutex){ CloseHandle(g_singleInstanceMutex); g_singleInstanceMutex=nullptr; } releaseD2DTarget();',1)
-    else:
-        old2='case WM_DESTROY:{ g_running=false;'
-        if old2 not in s:
-            raise SystemExit('WM_DESTROY anchor not found')
-        s=s.replace(old2,
-            'case WM_DESTROY:{ phoneBridgeLog(L"PhoneBridge shutting down"); if(g_singleInstanceMutex){ CloseHandle(g_singleInstanceMutex); g_singleInstanceMutex=nullptr; } g_running=false;',1)
+    destroy_re = re.compile(r'case WM_DESTROY:\s*\{')
+    inject = 'case WM_DESTROY:{ phoneBridgeLog(L"PhoneBridge shutting down"); if(g_singleInstanceMutex){ CloseHandle(g_singleInstanceMutex); g_singleInstanceMutex=nullptr; } '
+    s, count = destroy_re.subn(inject, s, count=1)
+    if count != 1:
+        raise SystemExit('WM_DESTROY case not found')
 
 # CI-visible safety markers.
 required = [
