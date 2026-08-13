@@ -104,11 +104,11 @@ if 'phoneBridgeLog(L"PhoneBridge shutting down")' not in s:
     if count != 1:
         raise SystemExit('WM_DESTROY case not found')
 
-# CI-visible safety markers.
+# CI-visible safety markers that live in Receiver.cpp. TurboJPEG itself is
+# validated separately in JpegDecoder.cpp by the workflow.
 required = [
     'D2D1CreateFactory',
     'DXGI_FORMAT_B8G8R8A8_UNORM',
-    'tjDecompress2',
     'MFCreateSinkWriterFromURL',
     'loadOrCreatePin',
     'phoneBridgeLogDir',
