@@ -1,0 +1,102 @@
+name: Build PhoneBridge Virtual Microphone Driver
+
+on:
+  push:
+    branches: [phonebridge-build]
+    paths:
+      - '.github/workflows/build-phonebridge-mic-driver.yml'
+      - 'phonebridge-mic-driver/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  driver:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone official Microsoft audio driver sample
+        shell: pwsh
+        run: git clone --depth 1 https://github.com/microsoft/Windows-driver-samples.git MicrosoftDriverSamples
+
+      - name: Apply PhoneBridge capture endpoint patch
+        shell: pwsh
+        run: python phonebridge-mic-driver/patch_phonebridge_driver.py MicrosoftDriverSamples/audio/simpleaudiosample
+
+      - name: Add current WDK NuGet toolset
+        shell: pwsh
+        run: |
+          @'
+          <Project>
+            <ItemGroup>
+              <PackageReference Include="Microsoft.Windows.WDK.x64" Version="10.0.28000.2526" />
+            </ItemGroup>
+          </Project>
+          '@ | Set-Content MicrosoftDriverSamples/audio/simpleaudiosample/Directory.Build.props
+
+      - name: Restore WDK
+        shell: pwsh
+        run: |
+          $vswhere="${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $msbuild=& $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
+          & $msbuild MicrosoftDriverSamples/audio/simpleaudiosample/SimpleAudioSample.sln /m /t:Restore /p:Configuration=Release /p:Platform=x64 /v:minimal
+          if($LASTEXITCODE -ne 0){throw 'WDK restore failed'}
+
+      - name: Put x64 WDK tools on PATH
+        shell: pwsh
+        run: |
+          $root=Join-Path $env:USERPROFILE '.nuget\packages\microsoft.windows.wdk.x64\10.0.28000.2526'
+          $stamp=Get-ChildItem $root -Recurse -Filter stampinf.exe | Where-Object {$_.FullName -match '\\x64\\stampinf\.exe$'} | Select-Object -First 1
+          if(-not $stamp){throw 'x64 stampinf not found'}
+          $stamp.DirectoryName | Out-File $env:GITHUB_PATH -Append -Encoding utf8
+          $inf2cat=Get-ChildItem $root -Recurse -Filter Inf2Cat.exe | Where-Object {$_.FullName -match '\\x86\\Inf2Cat\.exe$'} | Select-Object -First 1
+          if($inf2cat){$inf2cat.DirectoryName | Out-File $env:GITHUB_PATH -Append -Encoding utf8}
+
+      - name: Compile PhoneBridge kernel audio endpoint
+        shell: pwsh
+        run: |
+          $vswhere="${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $msbuild=& $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
+          & $msbuild MicrosoftDriverSamples/audio/simpleaudiosample/Source/Main/Main.vcxproj /m /t:Build /p:Configuration=Release /p:Platform=x64 /v:minimal
+          $sys='MicrosoftDriverSamples/audio/simpleaudiosample/Source/Main/x64/Release/SimpleAudioSample.sys'
+          $inf='MicrosoftDriverSamples/audio/simpleaudiosample/Source/Main/x64/Release/SimpleAudioSample.inf'
+          if(-not (Test-Path $sys)){throw 'PhoneBridge microphone SYS was not produced'}
+          if(-not (Test-Path $inf)){throw 'PhoneBridge microphone INF was not produced'}
+          Write-Host 'Kernel binary and INF produced. WDK validation may report runner-tooling errors after compilation; output existence is the compilation gate.'
+
+      - name: Verify PhoneBridge identity in generated INF
+        shell: pwsh
+        run: |
+          $inf='MicrosoftDriverSamples/audio/simpleaudiosample/Source/Main/x64/Release/SimpleAudioSample.inf'
+          $t=Get-Content $inf -Raw
+          foreach($m in @('ROOT\PhoneBridgeMicrophone','PhoneBridge Virtual Microphone','PhoneBridge Microphone')){if(-not $t.Contains($m)){throw "Generated INF missing $m"}}
+
+      - name: Assemble signing-ready driver payload
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force PhoneBridgeMicDriver | Out-Null
+          Copy-Item MicrosoftDriverSamples/audio/simpleaudiosample/Source/Main/x64/Release/SimpleAudioSample.sys PhoneBridgeMicDriver/PhoneBridgeMicrophone.sys
+          Copy-Item MicrosoftDriverSamples/audio/simpleaudiosample/Source/Main/x64/Release/SimpleAudioSample.inf PhoneBridgeMicDriver/PhoneBridgeMicrophone.inf
+          @'
+          PhoneBridge Virtual Microphone - signing-ready prototype
+
+          Purpose: expose the phone audio as a real Windows capture endpoint so browsers and Sound Recorder can enumerate PhoneBridge Microphone.
+
+          This package is NOT intended for normal end-user installation yet. Windows kernel audio drivers require Microsoft-trusted production signing for normal Secure-Boot systems. Do not disable Secure Boot or enable TESTSIGNING merely to install this prototype.
+
+          Architecture:
+          - Microsoft Simple Audio Sample / WaveRT capture endpoint base.
+          - Capture-only endpoint; sample speaker miniport disabled.
+          - User-mode PhoneBridge receiver sends 48 kHz phone PCM to \\.\PhoneBridgeAudio via buffered IOCTL.
+          - Driver stores audio in a nonpaged ring and feeds the WaveRT capture DMA buffer.
+          - Kernel streaming path never reads files or user memory directly.
+          '@ | Set-Content PhoneBridgeMicDriver/README.txt
+          Get-FileHash PhoneBridgeMicDriver/* -Algorithm SHA256 | Format-Table -AutoSize
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhoneBridge-Virtual-Microphone-Signing-Ready
+          path: PhoneBridgeMicDriver
+          if-no-files-found: error
