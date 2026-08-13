@@ -32,6 +32,8 @@ Name: "startup"; Description: "Start PhoneBridge when I sign in to Windows"; Gro
 Source: "payload-v12\PhoneBridge.exe"; DestDir: "{app}"; DestName: "PhoneBridge.exe"; Flags: ignoreversion
 Source: "payload-v12\PhoneBridgeVirtualCameraSetup.exe"; DestDir: "{app}\Camera"; Flags: ignoreversion
 Source: "payload-v12\VirtualCameraMediaSource.dll"; DestDir: "{app}\Camera"; Flags: ignoreversion
+Source: "payload-v12\PhoneBridgeVirtualCameraSetup.exe"; DestDir: "{commonappdata}\PhoneBridgeCamera"; Flags: ignoreversion
+Source: "payload-v12\VirtualCameraMediaSource.dll"; DestDir: "{commonappdata}\PhoneBridgeCamera"; Flags: ignoreversion
 Source: "payload-v12\PhoneBridge-v1.2.apk"; DestDir: "{app}\Android"; Flags: ignoreversion
 Source: "payload-v12\README.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "payload-v12\WINDOWS-MICROPHONE-STATUS.txt"; DestDir: "{app}"; Flags: ignoreversion
@@ -49,11 +51,11 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 Filename: "{app}\Camera\PhoneBridgeVirtualCameraSetup.exe"; Parameters: "/install /silent"; StatusMsg: "Installing PhoneBridge Camera..."; Flags: waituntilterminated runhidden
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""PhoneBridge"""; Flags: runhidden waituntilterminated
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""PhoneBridge"" dir=in action=allow program=""{app}\PhoneBridge.exe"" enable=yes profile=private"; StatusMsg: "Allowing PhoneBridge on private networks..."; Flags: runhidden waituntilterminated
-Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /F /TN ""PhoneBridge Camera Repair"""; Flags: runhidden waituntilterminated
-Filename: "{sys}\schtasks.exe"; Parameters: "/Create /F /SC ONLOGON /RL HIGHEST /TN ""PhoneBridge Camera Repair"" /TR ""\"{app}\Camera\PhoneBridgeVirtualCameraSetup.exe\" /install /silent"""; StatusMsg: "Making PhoneBridge Camera persistent for browser apps..."; Flags: runhidden waituntilterminated
+Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /F /TN PhoneBridgeCameraRepair"; Flags: runhidden waituntilterminated
+Filename: "{sys}\schtasks.exe"; Parameters: "/Create /F /SC ONLOGON /RL HIGHEST /TN PhoneBridgeCameraRepair /TR ""{commonappdata}\PhoneBridgeCamera\PhoneBridgeVirtualCameraSetup.exe /silent"""; StatusMsg: "Making PhoneBridge Camera persistent for browser apps..."; Flags: runhidden waituntilterminated
 Filename: "{app}\PhoneBridge.exe"; Description: "Launch PhoneBridge"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
-Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /F /TN ""PhoneBridge Camera Repair"""; Flags: runhidden waituntilterminated; RunOnceId: "RemovePhoneBridgeCameraTask"
+Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /F /TN PhoneBridgeCameraRepair"; Flags: runhidden waituntilterminated; RunOnceId: "RemovePhoneBridgeCameraTask"
 Filename: "{app}\Camera\PhoneBridgeVirtualCameraSetup.exe"; Parameters: "/uninstall /silent"; Flags: runhidden waituntilterminated; RunOnceId: "RemovePhoneBridgeCamera"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""PhoneBridge"""; Flags: runhidden waituntilterminated; RunOnceId: "RemovePhoneBridgeFirewall"
