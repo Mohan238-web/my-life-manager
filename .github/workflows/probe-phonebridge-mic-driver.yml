@@ -40,20 +40,20 @@ jobs:
           & $msbuild MicrosoftDriverSamples/audio/simpleaudiosample/SimpleAudioSample.sln /m /t:Restore /p:Configuration=Release /p:Platform=x64 /p:RestorePackagesConfig=true /v:minimal
           if($LASTEXITCODE -ne 0){ throw 'WDK NuGet restore failed' }
 
-      - name: Locate WDK command-line tools
+      - name: Locate compatible WDK command-line tools
         shell: pwsh
         run: |
           $root=Join-Path $env:USERPROFILE '.nuget\packages\microsoft.windows.wdk.x64\10.0.28000.2526'
-          $tools=@('stampinf.exe','inf2cat.exe','signtool.exe','tracewpp.exe')
-          foreach($tool in $tools){
-            $f=Get-ChildItem $root -Recurse -Filter $tool -ErrorAction SilentlyContinue | Select-Object -First 1
-            if($f){
-              Write-Host "$tool -> $($f.FullName)"
-              $f.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
-            } else { Write-Host "$tool not found in WDK NuGet package" }
-          }
-          $stamp=Get-ChildItem $root -Recurse -Filter stampinf.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-          if(-not $stamp){ throw 'stampinf.exe not found in WDK NuGet package' }
+          $stampCandidates=Get-ChildItem $root -Recurse -Filter stampinf.exe -ErrorAction SilentlyContinue
+          $stamp=$stampCandidates | Where-Object { $_.FullName -match '\\x64\\stampinf\.exe$' } | Select-Object -First 1
+          if(-not $stamp){ $stamp=$stampCandidates | Where-Object { $_.FullName -match '\\x86\\stampinf\.exe$' } | Select-Object -First 1 }
+          if(-not $stamp){ throw 'Compatible stampinf.exe not found in WDK NuGet package' }
+          Write-Host "Using stampinf: $($stamp.FullName)"
+          $stamp.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          $inf2cat=Get-ChildItem $root -Recurse -Filter Inf2Cat.exe -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match '\\x64\\Inf2Cat\.exe$|\\x86\\Inf2Cat\.exe$' } | Select-Object -First 1
+          if($inf2cat){ Write-Host "Using Inf2Cat: $($inf2cat.FullName)"; $inf2cat.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8 }
+          Write-Host 'All stampinf candidates:'
+          $stampCandidates | Select-Object -ExpandProperty FullName
 
       - name: Build official Simple Audio Sample x64
         shell: pwsh
