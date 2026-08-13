@@ -1,0 +1,44 @@
+name: Probe PhoneBridge Windows Microphone Driver
+
+on:
+  push:
+    branches: [phonebridge-build]
+    paths:
+      - '.github/workflows/probe-phonebridge-mic-driver.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone Microsoft Windows driver samples
+        shell: pwsh
+        run: git clone --depth 1 https://github.com/microsoft/Windows-driver-samples.git MicrosoftDriverSamples
+      - name: Inspect installed driver build environment
+        shell: pwsh
+        run: |
+          Write-Host "VS: $env:VisualStudioVersion"
+          Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10' -ErrorAction SilentlyContinue | Select-Object FullName
+          Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\18\Enterprise\MSBuild\Microsoft\VC' -ErrorAction SilentlyContinue | Select-Object FullName
+      - name: Attempt official Simple Audio Sample x64 build
+        shell: pwsh
+        run: |
+          $vswhere="${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $msbuild=& $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
+          if(-not $msbuild){ throw 'MSBuild not found' }
+          & $msbuild MicrosoftDriverSamples/audio/simpleaudiosample/SimpleAudioSample.sln /m /t:Build /p:Configuration=Release /p:Platform=x64 /v:minimal
+          if($LASTEXITCODE -ne 0){ throw 'SimpleAudioSample build failed in stock runner environment' }
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: Microsoft-SimpleAudioSample-Probe
+          path: |
+            MicrosoftDriverSamples/audio/simpleaudiosample/**/package/**
+            MicrosoftDriverSamples/audio/simpleaudiosample/**/*.sys
+            MicrosoftDriverSamples/audio/simpleaudiosample/**/*.inf
+            MicrosoftDriverSamples/audio/simpleaudiosample/**/*.cat
+          if-no-files-found: warn
