@@ -8,7 +8,7 @@
 #include <string>
 #include <sstream>
 #include <fstream>
-#include <vector>
+#include <filesystem>
 #pragma comment(lib,"ole32.lib")
 #pragma comment(lib,"mfplat.lib")
 #pragma comment(lib,"mfreadwrite.lib")
@@ -30,15 +30,14 @@ static std::wstring GuidText(REFGUID g){ wchar_t b[64]{}; StringFromGUID2(g,b,64
 static std::wstring reportPath(){
     wchar_t local[MAX_PATH]{};
     DWORD n=GetEnvironmentVariableW(L"LOCALAPPDATA",local,MAX_PATH);
-    std::wstring base=(n&&n<MAX_PATH)?local:L".";
-    std::wstring dir=base+L"\\PhoneBridge\\Logs";
-    CreateDirectoryW((base+L"\\PhoneBridge").c_str(),nullptr);
-    CreateDirectoryW(dir.c_str(),nullptr);
-    return dir+L"\\CameraHealth.txt";
+    std::filesystem::path dir=(n&&n<MAX_PATH)?std::filesystem::path(local):std::filesystem::current_path();
+    dir/=L"PhoneBridge"; dir/=L"Logs";
+    std::error_code ec; std::filesystem::create_directories(dir,ec);
+    return (dir/L"CameraHealth.txt").wstring();
 }
 
 static void saveReport(const std::wstring& text){
-    std::wofstream f(reportPath(),std::ios::trunc);
+    std::wofstream f(std::filesystem::path(reportPath()),std::ios::trunc);
     if(f) f<<text;
 }
 
@@ -49,13 +48,18 @@ static void show(const std::wstring& text,UINT icon=MB_ICONINFORMATION){
 int WINAPI wWinMain(HINSTANCE,HINSTANCE,LPWSTR,int){
     std::wstringstream log;
     log<<L"PhoneBridge Camera Health Test\n\n";
-    HRESULT hr=CoInitializeEx(nullptr,COINIT_MULTITHREADED);
-    bool co=SUCCEEDED(hr)||hr==RPC_E_CHANGED_MODE;
-    log<<L"COM: "<<HrText(hr)<<L"\n";
+    HRESULT coHr=CoInitializeEx(nullptr,COINIT_MULTITHREADED);
+    const bool mustCoUninitialize=SUCCEEDED(coHr);
+    log<<L"COM: "<<HrText(coHr)<<L"\n";
 
-    hr=MFStartup(MF_VERSION);
+    HRESULT hr=MFStartup(MF_VERSION);
     log<<L"MFStartup: "<<HrText(hr)<<L"\n";
-    if(FAILED(hr)){ saveReport(log.str()); show(L"Media Foundation could not start.\n\n"+HrText(hr)+L"\n\nReport: "+reportPath(),MB_ICONERROR); if(co&&hr!=RPC_E_CHANGED_MODE) CoUninitialize(); return 2; }
+    if(FAILED(hr)){
+        saveReport(log.str());
+        show(L"Media Foundation could not start.\n\n"+HrText(hr)+L"\n\nReport: "+reportPath(),MB_ICONERROR);
+        if(mustCoUninitialize) CoUninitialize();
+        return 2;
+    }
 
     IMFAttributes* attrs=nullptr;
     IMFActivate** devices=nullptr;
@@ -124,7 +128,7 @@ int WINAPI wWinMain(HINSTANCE,HINSTANCE,LPWSTR,int){
     if(devices){ for(UINT32 i=0;i<count;i++) if(devices[i]) devices[i]->Release(); CoTaskMemFree(devices); }
     if(attrs) attrs->Release();
     MFShutdown();
-    if(co) CoUninitialize();
+    if(mustCoUninitialize) CoUninitialize();
 
     if(ok) show(L"PASS: Windows successfully opened PhoneBridge Camera and read a video frame.\n\nIf a browser still says busy/blocked, fully close that browser and any Camera/Zoom/OBS app, then reopen it and select PhoneBridge Camera.\n\nReport: "+reportPath());
     else show(L"FAIL: Windows could not fully activate/read PhoneBridge Camera.\n\nThe exact HRESULT has been saved here:\n"+reportPath()+L"\n\nUse Repair camera, then run this test again.",MB_ICONERROR);
