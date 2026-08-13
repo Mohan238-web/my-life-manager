@@ -1,0 +1,277 @@
+name: Build PhoneBridge v1.2
+
+on:
+  push:
+    branches: [phonebridge-build]
+    paths:
+      - '.github/workflows/build-phonebridge-v1.2.yml'
+      - 'phonebridge-v12/**'
+      - 'phonebridge-installer/patch_vcam_silent.py'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  android:
+    name: Android v1.2 background/coexistence APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rebuild PhoneBridge base and v1 patches
+        run: |
+          cat phonebridge-source/p1-0.b64 phonebridge-source/p1-1.b64 phonebridge-source/p1-2.b64 phonebridge-source/p1-3.b64 phonebridge-source/part2.b64 phonebridge-source/p3-0.b64 phonebridge-source/p3-1.b64 phonebridge-source/p3-2.b64 phonebridge-source/p3-3.b64 phonebridge-source/part4.b64 | base64 -d > PhoneBridge-source.rebuilt.zip
+          unzip -t PhoneBridge-source.rebuilt.zip
+          unzip -q PhoneBridge-source.rebuilt.zip
+          mkdir -p PhoneBridge-v1-patches
+          cat phonebridge-v1/v1patch-00.b64 phonebridge-v1/v1patch-01.b64 phonebridge-v1/v1patch-02.b64 | base64 -d > PhoneBridge-v1-patches.zip
+          unzip -t PhoneBridge-v1-patches.zip
+          unzip -q PhoneBridge-v1-patches.zip -d PhoneBridge-v1-patches
+
+      - name: Apply real-device validated camera/audio baseline
+        run: |
+          cp phonebridge-patches/StreamService.java PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          cp phonebridge-patches/YuvTools.java PhoneBridge/android/app/src/main/java/com/phonebridge/app/YuvTools.java
+          python phonebridge-patches/fix_camera_main_thread.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          python phonebridge-patches/fix_av_quality.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          python phonebridge-patches/fix_color_rotation_v2.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          python phonebridge-patches/fix_color_depth_resolution_v3.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          python phonebridge-patches/fix_standard_nv21_v4.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          cp PhoneBridge-v1-patches/MainActivityV1.java PhoneBridge/android/app/src/main/java/com/phonebridge/app/MainActivity.java
+          python PhoneBridge-v1-patches/upgrade_v1_android.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          python phonebridge-v12/upgrade_v12_android.py PhoneBridge
+
+      - name: Harden foreground-service manifest and version
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('PhoneBridge/android/app/src/main/AndroidManifest.xml')
+          s=p.read_text()
+          if 'android.permission.WAKE_LOCK' not in s:
+              s=s.replace('<uses-permission android:name="android.permission.INTERNET" />','<uses-permission android:name="android.permission.WAKE_LOCK" />\n    <uses-permission android:name="android.permission.INTERNET" />')
+          s=s.replace('android:foregroundServiceType="camera|microphone" />','android:foregroundServiceType="camera|microphone"\n            android:stopWithTask="false" />')
+          p.write_text(s)
+          g=Path('PhoneBridge/android/app/build.gradle.kts')
+          t=g.read_text().replace('compileSdk = 37','compileSdk = 36').replace('targetSdk = 37','targetSdk = 36')
+          t=t.replace('versionCode = 1','versionCode = 12').replace('versionName = "1.0.0"','versionName = "1.2.0"')
+          g.write_text(t)
+          PY
+
+      - name: Verify v1.2 Android regression guards
+        run: |
+          S=PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          M=PhoneBridge/android/app/src/main/java/com/phonebridge/app/MainActivity.java
+          grep -q 'OUTPUT_IMAGE_FORMAT_NV21' "$S"
+          grep -q 'fromCameraXStandardNv21' "$S"
+          grep -q 'OrientationEventListener' "$S"
+          grep -q 'ContextCompat.getMainExecutor(this)' "$S"
+          grep -q 'START_STICKY' "$S"
+          grep -q 'setPrivacySensitive(false)' "$S"
+          grep -q 'bindToLifecycle(this, selector, analysis)' "$S"
+          grep -q 'releaseMicWhenBackground' "$S"
+          grep -q 'onTaskRemoved' "$S"
+          grep -q 'setUiForeground(false)' "$M"
+          grep -q 'Release phone microphone when I use other apps' "$M"
+          if grep -q 'OUTPUT_IMAGE_FORMAT_RGBA_8888' "$S"; then echo 'Regression: bad RGBA CameraX path returned' >&2; exit 1; fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK
+        run: sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+
+      - name: Build PhoneBridge v1.2 APK
+        run: gradle -p PhoneBridge/android --stacktrace assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhoneBridge-Android-v1.2-APK
+          path: PhoneBridge/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+  windows:
+    name: Windows v1.2 receiver and installer
+    needs: android
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rebuild PhoneBridge source and v1 patches
+        shell: pwsh
+        run: |
+          $names = 'p1-0','p1-1','p1-2','p1-3','part2','p3-0','p3-1','p3-2','p3-3','part4'
+          $b64 = ($names | ForEach-Object { Get-Content "phonebridge-source/$_.b64" -Raw }) -join ''
+          [IO.File]::WriteAllBytes('PhoneBridge-source.rebuilt.zip', [Convert]::FromBase64String($b64))
+          Expand-Archive -Path PhoneBridge-source.rebuilt.zip -DestinationPath . -Force
+          $v1Names = 'v1patch-00','v1patch-01','v1patch-02'
+          $v1b64 = ($v1Names | ForEach-Object { Get-Content "phonebridge-v1/$_.b64" -Raw }) -join ''
+          [IO.File]::WriteAllBytes('PhoneBridge-v1-patches.zip', [Convert]::FromBase64String($v1b64))
+          Expand-Archive -Path PhoneBridge-v1-patches.zip -DestinationPath PhoneBridge-v1-patches -Force
+
+      - name: Build static libjpeg-turbo 3.2.0
+        shell: pwsh
+        run: |
+          git clone --branch 3.2.0 --depth 1 https://github.com/libjpeg-turbo/libjpeg-turbo.git libjpeg-turbo
+          $prefix = Join-Path $PWD 'libjpeg-install'
+          cmake -S libjpeg-turbo -B libjpeg-build -A x64 -DENABLE_SHARED=OFF -DENABLE_STATIC=ON -DWITH_TURBOJPEG=ON -DWITH_TOOLS=OFF -DWITH_TESTS=OFF -DWITH_SIMD=OFF -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded "-DCMAKE_INSTALL_PREFIX=$prefix"
+          cmake --build libjpeg-build --config Release --target install
+
+      - name: Apply known-good Windows media path and v1.2 controls
+        shell: pwsh
+        run: |
+          Copy-Item phonebridge-patches/Receiver.cpp PhoneBridge/windows/native/Receiver.cpp -Force
+          Copy-Item phonebridge-patches/JpegDecoder.cpp PhoneBridge/windows/native/JpegDecoder.cpp -Force
+          Copy-Item phonebridge-patches/JpegDecoder.h PhoneBridge/windows/native/JpegDecoder.h -Force
+          Copy-Item phonebridge-patches/DecoderSelfTest.cpp PhoneBridge/windows/native/DecoderSelfTest.cpp -Force
+          Copy-Item phonebridge-patches/CMakeLists.txt PhoneBridge/windows/native/CMakeLists.txt -Force
+          Copy-Item phonebridge-patches/SharedBus.cpp PhoneBridge/windows/native/SharedBus.cpp -Force
+          Copy-Item phonebridge-patches/SharedBus.h PhoneBridge/windows/native/SharedBus.h -Force
+          python phonebridge-patches/add_raw_jpeg_diagnostic.py PhoneBridge/windows/native/Receiver.cpp
+          python phonebridge-patches/fix_preview_direct2d.py PhoneBridge/windows/native/Receiver.cpp
+          python PhoneBridge-v1-patches/upgrade_v1_windows.py PhoneBridge/windows/native/Receiver.cpp
+          python phonebridge-v11/harden_windows.py PhoneBridge/windows/native/Receiver.cpp
+          python phonebridge-v12/upgrade_v12_windows.py PhoneBridge/windows/native/Receiver.cpp
+
+          $cmake = Get-Content PhoneBridge/windows/native/CMakeLists.txt -Raw
+          $cmake = $cmake.Replace(
+            'target_link_libraries(PhoneBridgeReceiver PRIVATE ws2_32 ole32 shlwapi comctl32 libjpeg-turbo::turbojpeg-static)',
+            'target_link_libraries(PhoneBridgeReceiver PRIVATE ws2_32 ole32 shlwapi comctl32 shell32 mfplat mfreadwrite mfuuid libjpeg-turbo::turbojpeg-static)'
+          )
+          Set-Content PhoneBridge/windows/native/CMakeLists.txt $cmake
+
+          $src=Get-Content PhoneBridge/windows/native/Receiver.cpp -Raw
+          foreach($marker in @('D2D1CreateFactory','DXGI_FORMAT_B8G8R8A8_UNORM','PhoneBridge-v1.2-SingleInstance','Camera privacy','Mic privacy','MFCreateSinkWriterFromURL')){ if(-not $src.Contains($marker)){throw "v1.2 Windows marker missing: $marker"} }
+          if($src.Contains('StretchDIBits(')){throw 'Regression: legacy color renderer returned'}
+
+      - name: Configure and build v1.2 receiver
+        shell: pwsh
+        run: |
+          $prefix = Join-Path $PWD 'libjpeg-install'
+          cmake -S PhoneBridge/windows/native -B PhoneBridge/windows/build-v12 -A x64 "-DCMAKE_PREFIX_PATH=$prefix"
+          cmake --build PhoneBridge/windows/build-v12 --config Release
+
+      - name: Verify JPEG RGB regression test
+        shell: pwsh
+        run: PhoneBridge/windows/build-v12/Release/PhoneBridgeDecoderSelfTest.exe
+
+      - name: Download matching Android v1.2 APK
+        uses: actions/download-artifact@v4
+        with:
+          name: PhoneBridge-Android-v1.2-APK
+          path: validated/android
+
+      - name: Download validated PhoneBridge virtual camera DLL
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: Mohan238-web/my-life-manager
+          run-id: 31573415584
+          name: PhoneBridge-Windows-Virtual-Camera
+          path: validated/vcam
+
+      - name: Build silent virtual camera setup wrapper
+        shell: pwsh
+        run: |
+          python phonebridge-installer/patch_vcam_silent.py phonebridge-vcam/PhoneBridgeVirtualCameraSetup.cpp
+          cmake -S phonebridge-vcam -B phonebridge-vcam/v12-build -A x64
+          cmake --build phonebridge-vcam/v12-build --config Release --target PhoneBridgeVirtualCameraSetup
+          if(-not (Test-Path phonebridge-vcam/v12-build/Release/PhoneBridgeVirtualCameraSetup.exe)){throw 'Virtual camera setup not produced'}
+
+      - name: Prepare v1.2 installer payload
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force phonebridge-v12/payload-v12 | Out-Null
+          $apk=Get-ChildItem validated/android -Recurse -Filter '*.apk' | Select-Object -First 1
+          $dll=Get-ChildItem validated/vcam -Recurse -Filter 'VirtualCameraMediaSource.dll' | Select-Object -First 1
+          if(-not $apk -or -not $dll){throw 'Android/camera payload incomplete'}
+          Copy-Item PhoneBridge/windows/build-v12/Release/PhoneBridgeReceiver.exe phonebridge-v12/payload-v12/PhoneBridge.exe
+          Copy-Item $apk.FullName phonebridge-v12/payload-v12/PhoneBridge-v1.2.apk
+          Copy-Item $dll.FullName phonebridge-v12/payload-v12/VirtualCameraMediaSource.dll
+          Copy-Item phonebridge-vcam/v12-build/Release/PhoneBridgeVirtualCameraSetup.exe phonebridge-v12/payload-v12/PhoneBridgeVirtualCameraSetup.exe
+          @'
+          PhoneBridge v1.2
+
+          Preserved real-device validated camera path:
+          CameraX standard NV21 -> JPEG -> libjpeg-turbo BGRA -> Direct2D -> PhoneBridge Camera.
+
+          New in v1.2:
+          - Android camera continues through a foreground service when the app UI is backgrounded.
+          - Analysis-only CameraX binding removes dependency on the Activity preview surface.
+          - Partial wake lock keeps the network/camera service active while streaming.
+          - Recommended microphone coexistence mode releases the phone microphone when you switch apps.
+          - Balanced / Meeting / Studio microphone capture profiles.
+          - Android 11+ capture is explicitly non-privacy-sensitive, while coexistence mode still releases AudioRecord because Android does not guarantee two ordinary apps can capture the microphone simultaneously.
+          - Windows daily default raised to 720p / 30 fps / JPEG Q92.
+          - Selected quality is pushed automatically after pairing.
+          - Camera and microphone Windows privacy-setting shortcuts.
+          - Installer creates an elevated logon task that silently refreshes PhoneBridge Camera for browser enumeration after reboot.
+
+          A true browser/Sound Recorder PhoneBridge Microphone still requires a Windows audio endpoint driver. The receiver already provides PCM in audio.bus; the driver/signing stage is separate and documented in WINDOWS-MICROPHONE-STATUS.txt.
+          '@ | Set-Content phonebridge-v12/payload-v12/README.txt
+          @'
+          PhoneBridge Microphone - Windows endpoint status
+
+          PhoneBridge currently receives clean 48 kHz PCM audio and writes it to the shared audio bus, but Windows browsers and Sound Recorder only enumerate real MMDevice capture endpoints.
+          Creating that endpoint requires a Windows audio driver (SysVAD/WaveRT class). Microsoft requires trusted driver signing for normal Secure-Boot Windows systems.
+
+          v1.2 does not enable TESTSIGNING, disable Secure Boot, or install an untrusted kernel driver automatically.
+          A signing-ready PhoneBridge virtual-microphone driver is the next Windows system component.
+          '@ | Set-Content phonebridge-v12/payload-v12/WINDOWS-MICROPHONE-STATUS.txt
+          $files=Get-ChildItem phonebridge-v12/payload-v12 -File | Where-Object Name -ne 'CHECKSUMS-SHA256.txt'
+          ($files | ForEach-Object { "$( (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower() )  $($_.Name)" }) | Set-Content phonebridge-v12/payload-v12/CHECKSUMS-SHA256.txt
+
+      - name: Stage installer source
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force phonebridge-v12/out-v12 | Out-Null
+          # The Inno file expects payload-v12 beside itself; it already is.
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
+      - name: Build PhoneBridge v1.2 installer
+        shell: pwsh
+        run: |
+          $iscc="${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if(-not (Test-Path $iscc)){ $cmd=Get-Command ISCC.exe -ErrorAction SilentlyContinue; if($cmd){$iscc=$cmd.Source} }
+          if(-not (Test-Path $iscc)){throw 'Inno Setup compiler not found'}
+          Push-Location phonebridge-v12
+          & $iscc PhoneBridge-v1.2.iss
+          $code=$LASTEXITCODE
+          Pop-Location
+          if($code -ne 0){throw 'PhoneBridge v1.2 installer build failed'}
+
+      - name: Create release hashes
+        shell: pwsh
+        run: |
+          $setup='phonebridge-v12/out-v12/PhoneBridge-v1.2-Setup.exe'
+          $apk='phonebridge-v12/payload-v12/PhoneBridge-v1.2.apk'
+          @(
+            "$((Get-FileHash $setup -Algorithm SHA256).Hash.ToLower())  PhoneBridge-v1.2-Setup.exe",
+            "$((Get-FileHash $apk -Algorithm SHA256).Hash.ToLower())  PhoneBridge-v1.2.apk"
+          ) | Set-Content phonebridge-v12/out-v12/RELEASE-SHA256.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhoneBridge-v1.2-Package
+          path: |
+            phonebridge-v12/out-v12/PhoneBridge-v1.2-Setup.exe
+            phonebridge-v12/out-v12/RELEASE-SHA256.txt
+            phonebridge-v12/payload-v12/PhoneBridge-v1.2.apk
+            phonebridge-v12/payload-v12/PhoneBridge.exe
+            phonebridge-v12/payload-v12/README.txt
+            phonebridge-v12/payload-v12/WINDOWS-MICROPHONE-STATUS.txt
+          if-no-files-found: error
