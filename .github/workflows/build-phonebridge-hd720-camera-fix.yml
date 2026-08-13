@@ -1,0 +1,109 @@
+name: Build PhoneBridge HD720 Camera Fix
+
+on:
+  push:
+    branches: [phonebridge-build]
+    paths:
+      - '.github/workflows/build-phonebridge-hd720-camera-fix.yml'
+      - 'phonebridge-v16/**'
+      - 'phonebridge-v15/patch_vcam_safe_frames.py'
+      - 'phonebridge-vcam/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  camera:
+    name: Windows PhoneBridge 1280x720 virtual camera
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone and patch Microsoft virtual camera
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/microsoft/Windows-Camera.git windows-camera
+          nuget restore windows-camera/Samples/VirtualCamera/VirtualCameraSample.sln -PackagesDirectory windows-camera/Samples/VirtualCamera/packages -NonInteractive
+
+          $frame='windows-camera/Samples/VirtualCamera/VirtualCameraMediaSource/SimpleFrameGenerator.cpp'
+          $stream='windows-camera/Samples/VirtualCamera/VirtualCameraMediaSource/SimpleMediaStream.cpp'
+          python phonebridge-vcam/patch_vcam.py $frame
+          python phonebridge-v15/patch_vcam_safe_frames.py $frame
+          python phonebridge-v16/patch_vcam_hd720.py $stream
+          python phonebridge-vcam/test_color_math.py
+
+          foreach($marker in @('PhoneBridgeSafeFrameReader v1.5','PhoneBridgeColorSafeNV12')){
+            if(-not (Select-String -Path $frame -Pattern ([regex]::Escape($marker)) -Quiet)){throw "Camera frame marker missing: $marker"}
+          }
+          foreach($marker in @('PhoneBridgeHD720 v1.6','#define NUM_IMAGE_ROWS 720','#define NUM_IMAGE_COLS 1280')){
+            if(-not (Select-String -Path $stream -Pattern ([regex]::Escape($marker)) -Quiet)){throw "HD media-type marker missing: $marker"}
+          }
+          if(Select-String -Path $stream -Pattern '#define NUM_IMAGE_ROWS 480|#define NUM_IMAGE_COLS 640' -Quiet){throw 'Regression: virtual camera still advertises VGA'}
+
+      - name: Build 720p virtual camera media source
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
+          if(-not $msbuild){throw 'MSBuild not found'}
+          & $msbuild windows-camera/Samples/VirtualCamera/VirtualCameraMediaSource/VirtualCameraMediaSource.vcxproj /m /p:Configuration=Release /p:Platform=x64 /p:SolutionDir="$PWD\windows-camera\Samples\VirtualCamera\" /verbosity:minimal
+          $dll=Get-ChildItem windows-camera -Recurse -Filter VirtualCameraMediaSource.dll | Select-Object -First 1
+          if(-not $dll){throw 'VirtualCameraMediaSource.dll not produced'}
+          "VCAM_DLL=$($dll.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Build repair setup and camera health probe
+        shell: pwsh
+        run: |
+          python phonebridge-installer/patch_vcam_silent.py phonebridge-vcam/PhoneBridgeVirtualCameraSetup.cpp
+          python phonebridge-v14/patch_vcam_v14.py phonebridge-vcam/PhoneBridgeVirtualCameraSetup.cpp
+          Copy-Item phonebridge-v14/PhoneBridgeCameraProbe.cpp phonebridge-vcam/PhoneBridgeCameraProbe.cpp -Force
+          $cmake=Get-Content phonebridge-vcam/CMakeLists.txt -Raw
+          $cmake += @'
+
+          add_executable(PhoneBridgeCameraProbe WIN32 PhoneBridgeCameraProbe.cpp)
+          target_compile_definitions(PhoneBridgeCameraProbe PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+          target_link_libraries(PhoneBridgeCameraProbe PRIVATE ole32 mf mfplat mfreadwrite mfuuid shell32)
+          '@
+          Set-Content phonebridge-vcam/CMakeLists.txt $cmake
+          cmake -S phonebridge-vcam -B phonebridge-vcam/hd720-build -A x64
+          cmake --build phonebridge-vcam/hd720-build --config Release --target PhoneBridgeVirtualCameraSetup PhoneBridgeComProbe PhoneBridgeCameraProbe
+          & phonebridge-vcam/hd720-build/Release/PhoneBridgeComProbe.exe $env:VCAM_DLL
+          if($LASTEXITCODE -ne 0){throw 'PhoneBridge HD720 COM class-factory probe failed'}
+
+      - name: Package HD720 update
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force phonebridge-v16/package | Out-Null
+          Copy-Item $env:VCAM_DLL phonebridge-v16/package/VirtualCameraMediaSource.dll
+          Copy-Item phonebridge-vcam/hd720-build/Release/PhoneBridgeVirtualCameraSetup.exe phonebridge-v16/package/PhoneBridgeVirtualCameraSetup.exe
+          Copy-Item phonebridge-vcam/hd720-build/Release/PhoneBridgeCameraProbe.exe phonebridge-v16/package/PhoneBridgeCameraProbe.exe
+          @'
+          PhoneBridge HD720 Camera Update
+
+          Purpose
+          - Fixes the Windows/browser virtual-camera output being limited to 640x480 VGA.
+          - New native PhoneBridge Camera media type: 1280x720, 30 FPS, 16:9.
+          - Keeps the proven v1.5 crash-safe frame reader and BT.601 color conversion.
+          - Does NOT change PhoneBridge v1.5 receiver audio, VB-CABLE processing, Android capture, rotation, background mode or pairing.
+
+          Install
+          1. Keep your current PhoneBridge v1.5 PC receiver and Android app.
+          2. Fully close Chrome/Edge/Firefox, Windows Camera, Zoom, Teams and OBS.
+          3. Keep PhoneBridgeVirtualCameraSetup.exe and VirtualCameraMediaSource.dll together.
+          4. Run PhoneBridgeVirtualCameraSetup.exe as Administrator.
+          5. Reconnect PhoneBridge and select 720p / 30 FPS in the PC app.
+          6. Run PhoneBridgeCameraProbe.exe. It should report Frame size: 1280x720 and PASS.
+          7. Reopen the browser and select PhoneBridge Camera.
+
+          Note
+          The browser's selected capture constraints can still request a lower resolution, but the PhoneBridge native virtual-camera format is no longer hard-coded to VGA.
+          '@ | Set-Content phonebridge-v16/package/README-HD720.txt
+          $files=Get-ChildItem phonebridge-v16/package -File
+          ($files | ForEach-Object { "$( (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower() )  $($_.Name)" }) | Set-Content phonebridge-v16/package/SHA256.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhoneBridge-HD720-Camera-Fix
+          path: phonebridge-v16/package/*
+          if-no-files-found: error
