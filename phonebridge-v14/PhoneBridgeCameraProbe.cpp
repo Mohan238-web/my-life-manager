@@ -10,6 +10,7 @@
 #include <fstream>
 #include <filesystem>
 #pragma comment(lib,"ole32.lib")
+#pragma comment(lib,"mf.lib")
 #pragma comment(lib,"mfplat.lib")
 #pragma comment(lib,"mfreadwrite.lib")
 #pragma comment(lib,"mfuuid.lib")
