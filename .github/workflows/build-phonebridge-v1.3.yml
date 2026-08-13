@@ -1,0 +1,197 @@
+name: Build PhoneBridge v1.3
+
+on:
+  push:
+    branches: [phonebridge-build]
+    paths:
+      - '.github/workflows/build-phonebridge-v1.3.yml'
+      - 'phonebridge-v13/**'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  windows:
+    name: Windows v1.3 browser compatibility package
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rebuild exact v1.2 source baseline
+        shell: pwsh
+        run: |
+          $names = 'p1-0','p1-1','p1-2','p1-3','part2','p3-0','p3-1','p3-2','p3-3','part4'
+          $b64 = ($names | ForEach-Object { Get-Content "phonebridge-source/$_.b64" -Raw }) -join ''
+          [IO.File]::WriteAllBytes('PhoneBridge-source.rebuilt.zip', [Convert]::FromBase64String($b64))
+          Expand-Archive -Path PhoneBridge-source.rebuilt.zip -DestinationPath . -Force
+          $v1Names = 'v1patch-00','v1patch-01','v1patch-02'
+          $v1b64 = ($v1Names | ForEach-Object { Get-Content "phonebridge-v1/$_.b64" -Raw }) -join ''
+          [IO.File]::WriteAllBytes('PhoneBridge-v1-patches.zip', [Convert]::FromBase64String($v1b64))
+          Expand-Archive -Path PhoneBridge-v1-patches.zip -DestinationPath PhoneBridge-v1-patches -Force
+
+      - name: Build static libjpeg-turbo 3.2.0
+        shell: pwsh
+        run: |
+          git clone --branch 3.2.0 --depth 1 https://github.com/libjpeg-turbo/libjpeg-turbo.git libjpeg-turbo
+          $prefix = Join-Path $PWD 'libjpeg-install'
+          cmake -S libjpeg-turbo -B libjpeg-build -A x64 -DENABLE_SHARED=OFF -DENABLE_STATIC=ON -DWITH_TURBOJPEG=ON -DWITH_TOOLS=OFF -DWITH_TESTS=OFF -DWITH_SIMD=OFF -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded "-DCMAKE_INSTALL_PREFIX=$prefix"
+          cmake --build libjpeg-build --config Release --target install
+
+      - name: Apply validated media path and v1.3 compatibility layer
+        shell: pwsh
+        run: |
+          Copy-Item phonebridge-patches/Receiver.cpp PhoneBridge/windows/native/Receiver.cpp -Force
+          Copy-Item phonebridge-patches/JpegDecoder.cpp PhoneBridge/windows/native/JpegDecoder.cpp -Force
+          Copy-Item phonebridge-patches/JpegDecoder.h PhoneBridge/windows/native/JpegDecoder.h -Force
+          Copy-Item phonebridge-patches/DecoderSelfTest.cpp PhoneBridge/windows/native/DecoderSelfTest.cpp -Force
+          Copy-Item phonebridge-patches/CMakeLists.txt PhoneBridge/windows/native/CMakeLists.txt -Force
+          Copy-Item phonebridge-patches/SharedBus.cpp PhoneBridge/windows/native/SharedBus.cpp -Force
+          Copy-Item phonebridge-patches/SharedBus.h PhoneBridge/windows/native/SharedBus.h -Force
+          python phonebridge-patches/add_raw_jpeg_diagnostic.py PhoneBridge/windows/native/Receiver.cpp
+          python phonebridge-patches/fix_preview_direct2d.py PhoneBridge/windows/native/Receiver.cpp
+          python PhoneBridge-v1-patches/upgrade_v1_windows.py PhoneBridge/windows/native/Receiver.cpp
+          python phonebridge-v11/harden_windows.py PhoneBridge/windows/native/Receiver.cpp
+          python phonebridge-v12/upgrade_v12_windows.py PhoneBridge/windows/native/Receiver.cpp
+          Copy-Item phonebridge-v13/StereoMixBridge.h PhoneBridge/windows/native/StereoMixBridge.h -Force
+          Copy-Item phonebridge-v13/StereoMixBridge.cpp PhoneBridge/windows/native/StereoMixBridge.cpp -Force
+          python phonebridge-v13/upgrade_v13_windows.py PhoneBridge/windows/native/Receiver.cpp
+
+          $cmake=Get-Content PhoneBridge/windows/native/CMakeLists.txt -Raw
+          $cmake=$cmake.Replace('add_executable(PhoneBridgeReceiver WIN32 Receiver.cpp JpegDecoder.cpp SharedBus.cpp)','add_executable(PhoneBridgeReceiver WIN32 Receiver.cpp JpegDecoder.cpp SharedBus.cpp StereoMixBridge.cpp)')
+          $cmake=$cmake.Replace(
+            'target_link_libraries(PhoneBridgeReceiver PRIVATE ws2_32 ole32 shlwapi comctl32 libjpeg-turbo::turbojpeg-static)',
+            'target_link_libraries(PhoneBridgeReceiver PRIVATE ws2_32 ole32 shlwapi comctl32 shell32 mfplat mfreadwrite mfuuid uuid propsys libjpeg-turbo::turbojpeg-static)'
+          )
+          Set-Content PhoneBridge/windows/native/CMakeLists.txt $cmake
+
+          $src=Get-Content PhoneBridge/windows/native/Receiver.cpp -Raw
+          foreach($marker in @('D2D1CreateFactory','DXGI_FORMAT_B8G8R8A8_UNORM','PhoneBridge-v1.3-SingleInstance','Browser mic via Stereo Mix','Repair browser camera','StereoMixBridge')){if(-not $src.Contains($marker)){throw "v1.3 Windows marker missing: $marker"}}
+          if($src.Contains('StretchDIBits(')){throw 'Regression: legacy color renderer returned'}
+
+      - name: Configure and build v1.3 receiver
+        shell: pwsh
+        run: |
+          $prefix=Join-Path $PWD 'libjpeg-install'
+          cmake -S PhoneBridge/windows/native -B PhoneBridge/windows/build-v13 -A x64 "-DCMAKE_PREFIX_PATH=$prefix"
+          cmake --build PhoneBridge/windows/build-v13 --config Release
+
+      - name: Verify JPEG RGB regression test
+        shell: pwsh
+        run: PhoneBridge/windows/build-v13/Release/PhoneBridgeDecoderSelfTest.exe
+
+      - name: Download validated Android v1.2 background APK
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: Mohan238-web/my-life-manager
+          run-id: 31662720100
+          name: PhoneBridge-Android-v1.2-APK
+          path: validated/android
+
+      - name: Download validated PhoneBridge virtual camera DLL
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: Mohan238-web/my-life-manager
+          run-id: 31573415584
+          name: PhoneBridge-Windows-Virtual-Camera
+          path: validated/vcam
+
+      - name: Build all-users browser camera setup
+        shell: pwsh
+        run: |
+          python phonebridge-installer/patch_vcam_silent.py phonebridge-vcam/PhoneBridgeVirtualCameraSetup.cpp
+          python phonebridge-v13/patch_vcam_allusers.py phonebridge-vcam/PhoneBridgeVirtualCameraSetup.cpp
+          $t=Get-Content phonebridge-vcam/PhoneBridgeVirtualCameraSetup.cpp -Raw
+          foreach($m in @('MFVirtualCameraAccess_AllUsers','OpenLegacyCurrentUserCamera','gSilent')){if(-not $t.Contains($m)){throw "v1.3 camera setup marker missing: $m"}}
+          cmake -S phonebridge-vcam -B phonebridge-vcam/v13-build -A x64
+          cmake --build phonebridge-vcam/v13-build --config Release --target PhoneBridgeVirtualCameraSetup
+          if(-not (Test-Path phonebridge-vcam/v13-build/Release/PhoneBridgeVirtualCameraSetup.exe)){throw 'v1.3 camera setup not produced'}
+
+      - name: Prepare v1.3 installer payload
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force phonebridge-v13/payload-v13 | Out-Null
+          $apk=Get-ChildItem validated/android -Recurse -Filter '*.apk' | Select-Object -First 1
+          $dll=Get-ChildItem validated/vcam -Recurse -Filter 'VirtualCameraMediaSource.dll' | Select-Object -First 1
+          if(-not $apk -or -not $dll){throw 'Validated Android/camera payload incomplete'}
+          Copy-Item PhoneBridge/windows/build-v13/Release/PhoneBridgeReceiver.exe phonebridge-v13/payload-v13/PhoneBridge.exe
+          Copy-Item $apk.FullName phonebridge-v13/payload-v13/PhoneBridge-v1.2.apk
+          Copy-Item $dll.FullName phonebridge-v13/payload-v13/VirtualCameraMediaSource.dll
+          Copy-Item phonebridge-vcam/v13-build/Release/PhoneBridgeVirtualCameraSetup.exe phonebridge-v13/payload-v13/PhoneBridgeVirtualCameraSetup.exe
+          @'
+          PhoneBridge v1.3 - Browser Compatibility
+
+          The real-device validated camera path is unchanged:
+          CameraX NV21 -> JPEG -> libjpeg-turbo BGRA -> Direct2D -> PhoneBridge Camera.
+
+          New Windows compatibility features:
+          - Browser mic via Stereo Mix checkbox.
+          - Incoming 48 kHz mono phone PCM is duplicated to stereo and rendered through Windows WASAPI shared mode so Realtek Stereo Mix can capture it.
+          - Stereo Mix availability/state is checked before the bridge is enabled.
+          - Recording Devices shortcut is built into PhoneBridge.
+          - Headphones are recommended while the Stereo Mix bridge is enabled to prevent speaker/microphone feedback.
+          - PhoneBridge Camera is migrated from v1.2 CurrentUser scope to Media Foundation AllUsers scope during elevated install/repair.
+          - Repair browser camera button can rerun the camera registration without reinstalling PhoneBridge.
+          - The old per-user virtual-camera registration is removed during migration/uninstall.
+
+          The Android app is the already validated v1.2 background/coexistence build. You do not need to reinstall it when upgrading only the PC to v1.3.
+          '@ | Set-Content phonebridge-v13/payload-v13/README.txt
+          @'
+          Browser / Recorder use
+
+          MICROPHONE
+          1. In Windows Recording devices, make sure Stereo Mix (Realtek) is enabled.
+          2. Connect the phone to PhoneBridge.
+          3. Enable "Browser mic via Stereo Mix" in PhoneBridge PC.
+          4. In Chrome/Edge/Firefox/Sound Recorder select Stereo Mix (Realtek) as the microphone/input.
+          5. Use headphones when possible. Stereo Mix is a compatibility bridge and can include other PC playback sounds.
+
+          CAMERA
+          PhoneBridge v1.3 registers PhoneBridge Camera for All Users. Fully close and reopen the browser after installation. If it is still missing, use "Repair browser camera", approve Administrator permission, and reopen the browser. Camera privacy access for desktop apps must be enabled in Windows.
+
+          A future production PhoneBridge Microphone driver will remove the Stereo Mix requirement. It is not silently installed here because normal Secure-Boot Windows requires Microsoft-trusted kernel-driver signing.
+          '@ | Set-Content phonebridge-v13/payload-v13/BROWSER-COMPATIBILITY.txt
+          $files=Get-ChildItem phonebridge-v13/payload-v13 -File | Where-Object Name -ne 'CHECKSUMS-SHA256.txt'
+          ($files | ForEach-Object { "$( (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower() )  $($_.Name)" }) | Set-Content phonebridge-v13/payload-v13/CHECKSUMS-SHA256.txt
+          New-Item -ItemType Directory -Force phonebridge-v13/out-v13 | Out-Null
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
+      - name: Build PhoneBridge v1.3 installer
+        shell: pwsh
+        run: |
+          $iscc="${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if(-not (Test-Path $iscc)){ $cmd=Get-Command ISCC.exe -ErrorAction SilentlyContinue; if($cmd){$iscc=$cmd.Source} }
+          if(-not (Test-Path $iscc)){throw 'Inno Setup compiler not found'}
+          Push-Location phonebridge-v13
+          & $iscc PhoneBridge-v1.3.iss
+          $code=$LASTEXITCODE
+          Pop-Location
+          if($code -ne 0){throw 'PhoneBridge v1.3 installer build failed'}
+
+      - name: Create release hashes
+        shell: pwsh
+        run: |
+          $setup='phonebridge-v13/out-v13/PhoneBridge-v1.3-Setup.exe'
+          $exe='phonebridge-v13/payload-v13/PhoneBridge.exe'
+          @(
+            "$((Get-FileHash $setup -Algorithm SHA256).Hash.ToLower())  PhoneBridge-v1.3-Setup.exe",
+            "$((Get-FileHash $exe -Algorithm SHA256).Hash.ToLower())  PhoneBridge-v1.3.exe"
+          ) | Set-Content phonebridge-v13/out-v13/RELEASE-SHA256.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhoneBridge-v1.3-Package
+          path: |
+            phonebridge-v13/out-v13/PhoneBridge-v1.3-Setup.exe
+            phonebridge-v13/out-v13/RELEASE-SHA256.txt
+            phonebridge-v13/payload-v13/PhoneBridge.exe
+            phonebridge-v13/payload-v13/PhoneBridge-v1.2.apk
+            phonebridge-v13/payload-v13/README.txt
+            phonebridge-v13/payload-v13/BROWSER-COMPATIBILITY.txt
+          if-no-files-found: error
