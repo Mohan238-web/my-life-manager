@@ -1,0 +1,117 @@
+name: Build PhoneBridge v1.7 Stable Installer
+
+on:
+  push:
+    branches: [phonebridge-build]
+    paths:
+      - '.github/workflows/build-phonebridge-v1.7-stable-installer.yml'
+      - 'phonebridge-installer/PhoneBridge-v17-stable.iss'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  windows-installer:
+    name: Package PhoneBridge v1.7 stable for a clean PC
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download validated v1.7 Windows package
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: Mohan238-web/my-life-manager
+          run-id: 31768876341
+          name: PhoneBridge-v1.7-Package
+          path: validated/v17
+
+      - name: Download matched v1.6 Android APK
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: Mohan238-web/my-life-manager
+          run-id: 31763914864
+          name: PhoneBridge-v1.6-Camera-Package
+          path: validated/android
+
+      - name: Prepare stable installer payload
+        shell: pwsh
+        run: |
+          $payload='phonebridge-installer/payload-v17-stable'
+          New-Item -ItemType Directory -Force "$payload/Camera","$payload/Android" | Out-Null
+
+          $receiver=Get-ChildItem validated/v17 -Recurse -Filter 'PhoneBridge-v1.7.exe' | Select-Object -First 1
+          $setup=Get-ChildItem validated/v17 -Recurse -Filter 'PhoneBridgeVirtualCameraSetup.exe' | Select-Object -First 1
+          $dll=Get-ChildItem validated/v17 -Recurse -Filter 'VirtualCameraMediaSource.dll' | Select-Object -First 1
+          $probe=Get-ChildItem validated/v17 -Recurse -Filter 'PhoneBridgeCameraProbe.exe' | Select-Object -First 1
+          $apk=Get-ChildItem validated/android -Recurse -Filter 'PhoneBridge-v1.6.apk' | Select-Object -First 1
+          foreach($f in @($receiver,$setup,$dll,$probe,$apk)){ if(-not $f){ throw 'Required PhoneBridge stable payload file is missing' } }
+
+          Copy-Item $receiver.FullName "$payload/PhoneBridge.exe"
+          Copy-Item $setup.FullName "$payload/Camera/PhoneBridgeVirtualCameraSetup.exe"
+          Copy-Item $dll.FullName "$payload/Camera/VirtualCameraMediaSource.dll"
+          Copy-Item $probe.FullName "$payload/Camera/PhoneBridgeCameraProbe.exe"
+          Copy-Item $apk.FullName "$payload/Android/PhoneBridge-v1.6.apk"
+
+          @'
+          PhoneBridge v1.7 Stable - New PC Setup
+
+          This package consolidates the tested PhoneBridge versions into one clean Windows installation.
+
+          Included:
+          - PhoneBridge v1.7 Windows receiver
+          - PhoneBridge Camera 1280x720 @ 30 FPS virtual camera
+          - Camera Health Test and repair setup
+          - PhoneBridge v1.6 Android APK (matched working phone build)
+          - Windows private-network firewall rule
+          - optional Start with Windows and desktop shortcut
+
+          New PC use:
+          1. Run PhoneBridge-v1.7-Stable-Setup.exe as Administrator.
+          2. Restart Windows once after the first installation so Windows Camera Frame Server loads the installed camera DLL cleanly.
+          3. Install PhoneBridge-v1.6.apk on the Android phone and grant Camera, Microphone and Notification permissions.
+          4. Keep phone and PC on the same Wi-Fi and pair once.
+          5. For browser camera select PhoneBridge Camera.
+          6. Browser microphone uses VB-CABLE. If VB-CABLE is not installed on the new PC, use PhoneBridge's Get VB-CABLE button or the Start-menu shortcut, install the official VB-Audio driver, restart Windows, then choose CABLE Output as the browser microphone.
+
+          Important:
+          - VB-CABLE is third-party software and is intentionally not bundled inside this installer.
+          - Keep normal PC playback on Realtek Speakers/headphones to avoid feedback.
+          - The PhoneBridge installer is not commercially code-signed yet, so Windows SmartScreen may warn about an unknown publisher.
+          '@ | Set-Content "$payload/README-New-PC.txt"
+
+          $files=Get-ChildItem $payload -Recurse -File
+          ($files | ForEach-Object { "$( (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower() )  $($_.FullName.Substring((Resolve-Path $payload).Path.Length+1))" }) | Set-Content "$payload/SHA256.txt"
+
+      - name: Compile single Windows installer
+        shell: pwsh
+        run: |
+          $iscc="${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if(-not (Test-Path $iscc)){
+            choco install innosetup -y --no-progress
+          }
+          if(-not (Test-Path $iscc)){ throw 'Inno Setup compiler not found' }
+          & $iscc phonebridge-installer/PhoneBridge-v17-stable.iss
+          if($LASTEXITCODE -ne 0){ throw 'Inno Setup compilation failed' }
+          $setup=Get-ChildItem phonebridge-installer/out-v17-stable -Filter 'PhoneBridge-v1.7-Stable-Setup.exe' | Select-Object -First 1
+          if(-not $setup){ throw 'PhoneBridge stable setup EXE was not produced' }
+
+      - name: Prepare release files and checksums
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release-v17-stable | Out-Null
+          Copy-Item phonebridge-installer/out-v17-stable/PhoneBridge-v1.7-Stable-Setup.exe release-v17-stable/
+          Copy-Item phonebridge-installer/payload-v17-stable/Android/PhoneBridge-v1.6.apk release-v17-stable/PhoneBridge-v1.7-Android.apk
+          Copy-Item phonebridge-installer/payload-v17-stable/README-New-PC.txt release-v17-stable/
+          $files=Get-ChildItem release-v17-stable -File
+          ($files | ForEach-Object { "$( (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower() )  $($_.Name)" }) | Set-Content release-v17-stable/SHA256.txt
+          Get-Content release-v17-stable/SHA256.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhoneBridge-v1.7-Stable-New-PC
+          path: release-v17-stable/*
+          if-no-files-found: error
