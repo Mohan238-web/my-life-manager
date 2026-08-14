@@ -1,0 +1,113 @@
+name: Build PhoneBridge v1.6.1 Camera Hotfix
+
+on:
+  push:
+    branches: [phonebridge-build]
+    paths:
+      - '.github/workflows/build-phonebridge-v1.6.1-camera-hotfix.yml'
+      - 'phonebridge-v16/patch_vcam_stable720_v161.py'
+      - 'phonebridge-v16/patch_vcam_fit_lowlatency.py'
+      - 'phonebridge-vcam/**'
+      - 'phonebridge-v15/patch_vcam_safe_frames.py'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  windows:
+    name: Windows stable 720p virtual camera hotfix
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone Microsoft virtual camera sample and apply stable v1.6.1 path
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/microsoft/Windows-Camera.git windows-camera
+          nuget restore windows-camera/Samples/VirtualCamera/VirtualCameraSample.sln -PackagesDirectory windows-camera/Samples/VirtualCamera/packages -NonInteractive
+          $frame='windows-camera/Samples/VirtualCamera/VirtualCameraMediaSource/SimpleFrameGenerator.cpp'
+          $stream='windows-camera/Samples/VirtualCamera/VirtualCameraMediaSource/SimpleMediaStream.cpp'
+          python phonebridge-vcam/patch_vcam.py $frame
+          python phonebridge-v16/patch_vcam_fit_lowlatency.py $frame
+          python phonebridge-v16/patch_vcam_stable720_v161.py $stream
+          python phonebridge-vcam/test_color_math.py
+
+          foreach($marker in @('PhoneBridgeFitLatestFrame v1.6','FIT_CENTER instead of stretch/crop','s_cached.swap(s_candidate)')){
+            if(-not (Select-String -Path $frame -Pattern ([regex]::Escape($marker)) -Quiet)){throw "v1.6 frame marker missing: $marker"}
+          }
+          foreach($marker in @('PhoneBridgeStable720 v1.6.1','#define NUM_IMAGE_ROWS 720','#define NUM_IMAGE_COLS 1280')){
+            if(-not (Select-String -Path $stream -Pattern ([regex]::Escape($marker)) -Quiet)){throw "v1.6.1 stable media marker missing: $marker"}
+          }
+          if(Select-String -Path $stream -Pattern 'PhoneBridgeAdaptiveMedia v1.6|NUM_MEDIATYPES = 4' -Quiet){throw 'Regression: adaptive multi-format media negotiation returned'}
+
+      - name: Build v1.6.1 virtual camera media source
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
+          if(-not $msbuild){throw 'MSBuild not found'}
+          & $msbuild windows-camera/Samples/VirtualCamera/VirtualCameraMediaSource/VirtualCameraMediaSource.vcxproj /m /p:Configuration=Release /p:Platform=x64 /p:SolutionDir="$PWD\windows-camera\Samples\VirtualCamera\" /verbosity:minimal
+          $dll=Get-ChildItem windows-camera -Recurse -Filter VirtualCameraMediaSource.dll | Select-Object -First 1
+          if(-not $dll){throw 'VirtualCameraMediaSource.dll not produced'}
+          "VCAM_DLL=$($dll.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Build repair setup and camera health probe
+        shell: pwsh
+        run: |
+          python phonebridge-installer/patch_vcam_silent.py phonebridge-vcam/PhoneBridgeVirtualCameraSetup.cpp
+          python phonebridge-v14/patch_vcam_v14.py phonebridge-vcam/PhoneBridgeVirtualCameraSetup.cpp
+          Copy-Item phonebridge-v14/PhoneBridgeCameraProbe.cpp phonebridge-vcam/PhoneBridgeCameraProbe.cpp -Force
+          $cmake=Get-Content phonebridge-vcam/CMakeLists.txt -Raw
+          $cmake += @'
+
+          add_executable(PhoneBridgeCameraProbe WIN32 PhoneBridgeCameraProbe.cpp)
+          target_compile_definitions(PhoneBridgeCameraProbe PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+          target_link_libraries(PhoneBridgeCameraProbe PRIVATE ole32 mf mfplat mfreadwrite mfuuid shell32)
+          '@
+          Set-Content phonebridge-vcam/CMakeLists.txt $cmake
+          cmake -S phonebridge-vcam -B phonebridge-vcam/v161-build -A x64
+          cmake --build phonebridge-vcam/v161-build --config Release --target PhoneBridgeVirtualCameraSetup PhoneBridgeComProbe PhoneBridgeCameraProbe
+          & phonebridge-vcam/v161-build/Release/PhoneBridgeComProbe.exe $env:VCAM_DLL
+          if($LASTEXITCODE -ne 0){throw 'PhoneBridge v1.6.1 COM class-factory probe failed'}
+
+      - name: Package v1.6.1 hotfix
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force phonebridge-v16/hotfix161 | Out-Null
+          Copy-Item $env:VCAM_DLL phonebridge-v16/hotfix161/VirtualCameraMediaSource.dll
+          Copy-Item phonebridge-vcam/v161-build/Release/PhoneBridgeVirtualCameraSetup.exe phonebridge-v16/hotfix161/PhoneBridgeVirtualCameraSetup.exe
+          Copy-Item phonebridge-vcam/v161-build/Release/PhoneBridgeCameraProbe.exe phonebridge-v16/hotfix161/PhoneBridgeCameraProbe.exe
+          @'
+          PhoneBridge v1.6.1 Camera Hotfix
+
+          This hotfix removes the v1.6 dynamic portrait/landscape Media Foundation negotiation that can make browsers report the webcam as busy/blocked.
+
+          Kept from v1.6:
+          - last-good-frame cache to reduce flicker
+          - persistent video.bus mapping for lower latency
+          - FIT_CENTER aspect preservation, so portrait faces are not stretched wide
+          - Android v1.6 matched Preview/ImageAnalysis framing and background sharing remain compatible
+
+          Windows camera format:
+          - one stable 1280x720 @ 30 FPS Media Foundation format
+          - portrait phone video is fitted proportionally inside 1280x720 with side bars rather than stretched
+
+          Install:
+          1. Keep PhoneBridge v1.6 Android APK and PhoneBridge v1.5 PC receiver.
+          2. Close Chrome/Edge/Firefox, Camera, Zoom, Teams and OBS.
+          3. Keep PhoneBridgeVirtualCameraSetup.exe beside VirtualCameraMediaSource.dll.
+          4. Run PhoneBridgeVirtualCameraSetup.exe as Administrator.
+          5. Restart Windows once.
+          6. Connect the phone, then run PhoneBridgeCameraProbe.exe BEFORE opening a browser.
+          7. PASS should show a readable 1280x720 frame.
+          '@ | Set-Content phonebridge-v16/hotfix161/README-v1.6.1.txt
+          $files=Get-ChildItem phonebridge-v16/hotfix161 -File
+          ($files | ForEach-Object { "$( (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower() )  $($_.Name)" }) | Set-Content phonebridge-v16/hotfix161/SHA256.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhoneBridge-v1.6.1-Camera-Hotfix
+          path: phonebridge-v16/hotfix161/*
+          if-no-files-found: error
