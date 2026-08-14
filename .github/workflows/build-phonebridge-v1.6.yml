@@ -1,0 +1,225 @@
+name: Build PhoneBridge v1.6 Camera Match and Low Latency
+
+on:
+  push:
+    branches: [phonebridge-build]
+    paths:
+      - '.github/workflows/build-phonebridge-v1.6.yml'
+      - 'phonebridge-v16/**'
+      - 'phonebridge-v15/patch_vcam_safe_frames.py'
+      - 'phonebridge-vcam/**'
+      - 'phonebridge-v12/upgrade_v12_android.py'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  android:
+    name: Android v1.6 matched preview and background camera
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rebuild PhoneBridge Android source
+        run: |
+          cat phonebridge-source/p1-0.b64 phonebridge-source/p1-1.b64 phonebridge-source/p1-2.b64 phonebridge-source/p1-3.b64 phonebridge-source/part2.b64 phonebridge-source/p3-0.b64 phonebridge-source/p3-1.b64 phonebridge-source/p3-2.b64 phonebridge-source/p3-3.b64 phonebridge-source/part4.b64 | base64 -d > PhoneBridge-source.rebuilt.zip
+          unzip -t PhoneBridge-source.rebuilt.zip
+          unzip -q PhoneBridge-source.rebuilt.zip
+          mkdir -p PhoneBridge-v1-patches
+          cat phonebridge-v1/v1patch-00.b64 phonebridge-v1/v1patch-01.b64 phonebridge-v1/v1patch-02.b64 | base64 -d > PhoneBridge-v1-patches.zip
+          unzip -q PhoneBridge-v1-patches.zip -d PhoneBridge-v1-patches
+
+      - name: Apply proven sender/background baseline and v1.6 camera matching
+        run: |
+          cp phonebridge-patches/StreamService.java PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          cp phonebridge-patches/YuvTools.java PhoneBridge/android/app/src/main/java/com/phonebridge/app/YuvTools.java
+          python phonebridge-patches/fix_camera_main_thread.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          python phonebridge-patches/fix_av_quality.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          python phonebridge-patches/fix_color_rotation_v2.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          python phonebridge-patches/fix_color_depth_resolution_v3.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          python phonebridge-patches/fix_standard_nv21_v4.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          cp PhoneBridge-v1-patches/MainActivityV1.java PhoneBridge/android/app/src/main/java/com/phonebridge/app/MainActivity.java
+          python PhoneBridge-v1-patches/upgrade_v1_android.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          python phonebridge-v12/upgrade_v12_android.py PhoneBridge
+          python phonebridge-v16/upgrade_v16_android.py PhoneBridge
+
+      - name: Harden manifest and stamp v1.6
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('PhoneBridge/android/app/src/main/AndroidManifest.xml')
+          s=p.read_text()
+          if 'android.permission.WAKE_LOCK' not in s:
+              s=s.replace('<uses-permission android:name="android.permission.INTERNET" />','<uses-permission android:name="android.permission.WAKE_LOCK" />\n    <uses-permission android:name="android.permission.INTERNET" />')
+          s=s.replace('android:foregroundServiceType="camera|microphone" />','android:foregroundServiceType="camera|microphone"\n            android:stopWithTask="false" />')
+          p.write_text(s)
+          g=Path('PhoneBridge/android/app/build.gradle.kts')
+          t=g.read_text().replace('compileSdk = 37','compileSdk = 36').replace('targetSdk = 37','targetSdk = 36')
+          t=t.replace('versionCode = 1','versionCode = 16').replace('versionName = "1.0.0"','versionName = "1.6.0"')
+          g.write_text(t)
+          PY
+
+      - name: Verify Android regression guards
+        run: |
+          S=PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          M=PhoneBridge/android/app/src/main/java/com/phonebridge/app/MainActivity.java
+          grep -q 'OUTPUT_IMAGE_FORMAT_NV21' "$S"
+          grep -q 'fromCameraXStandardNv21' "$S"
+          grep -q 'OrientationEventListener' "$S"
+          grep -q 'START_STICKY' "$S"
+          grep -q 'provider.bindToLifecycle(this, selector, analysis)' "$S"
+          grep -q 'PhoneBridge v1.6 preview/share match' "$S"
+          grep -q 'setResolutionSelector(resolutionSelector)' "$S"
+          grep -q 'UseCaseGroup.Builder' "$S"
+          grep -q 'group.setViewPort(viewPort)' "$S"
+          grep -q 'PreviewView.ScaleType.FIT_CENTER' "$M"
+          grep -q 'setUiForeground(false)' "$M"
+          if grep -q 'OUTPUT_IMAGE_FORMAT_RGBA_8888' "$S"; then echo 'Regression: bad RGBA path returned' >&2; exit 1; fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - name: Install Android SDK
+        run: sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+      - name: Build PhoneBridge v1.6 APK
+        run: gradle -p PhoneBridge/android --stacktrace assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhoneBridge-Android-v1.6-APK
+          path: PhoneBridge/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+  camera:
+    name: Windows v1.6 adaptive low-latency virtual camera
+    needs: android
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone and patch Microsoft virtual camera
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/microsoft/Windows-Camera.git windows-camera
+          nuget restore windows-camera/Samples/VirtualCamera/VirtualCameraSample.sln -PackagesDirectory windows-camera/Samples/VirtualCamera/packages -NonInteractive
+          $frame='windows-camera/Samples/VirtualCamera/VirtualCameraMediaSource/SimpleFrameGenerator.cpp'
+          $stream='windows-camera/Samples/VirtualCamera/VirtualCameraMediaSource/SimpleMediaStream.cpp'
+          python phonebridge-vcam/patch_vcam.py $frame
+          python phonebridge-v15/patch_vcam_safe_frames.py $frame
+          python phonebridge-v16/patch_vcam_fit_lowlatency.py $frame
+          python phonebridge-v16/patch_vcam_adaptive_media.py $stream
+          python phonebridge-vcam/test_color_math.py
+
+          foreach($marker in @('PhoneBridgeFitLatestFrame v1.6','static thread_local BYTE* s_view','s_cached.swap(s_candidate)','FIT_CENTER instead of stretch/crop','PhoneBridgeColorSafeNV12')){
+            if(-not (Select-String -Path $frame -Pattern ([regex]::Escape($marker)) -Quiet)){throw "v1.6 frame marker missing: $marker"}
+          }
+          foreach($marker in @('PhoneBridgeAdaptiveMedia v1.6','PB_LANDSCAPE_WIDTH 1280','PB_PORTRAIT_WIDTH 720','const uint32_t NUM_MEDIATYPES = 4','PhoneBridgeReadSourceDimensions')){
+            if(-not (Select-String -Path $stream -Pattern ([regex]::Escape($marker)) -Quiet)){throw "v1.6 media marker missing: $marker"}
+          }
+          if(Select-String -Path $stream -Pattern '#define NUM_IMAGE_ROWS 480|#define NUM_IMAGE_COLS 640' -Quiet){throw 'Regression: VGA-only camera returned'}
+          if(Select-String -Path $frame -Pattern 'if \(!copied\) fillBlack\(\)' -Quiet){throw 'Regression: black-frame flicker fallback returned'}
+
+      - name: Build v1.6 virtual camera media source
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
+          if(-not $msbuild){throw 'MSBuild not found'}
+          & $msbuild windows-camera/Samples/VirtualCamera/VirtualCameraMediaSource/VirtualCameraMediaSource.vcxproj /m /p:Configuration=Release /p:Platform=x64 /p:SolutionDir="$PWD\windows-camera\Samples\VirtualCamera\" /verbosity:minimal
+          $dll=Get-ChildItem windows-camera -Recurse -Filter VirtualCameraMediaSource.dll | Select-Object -First 1
+          if(-not $dll){throw 'VirtualCameraMediaSource.dll not produced'}
+          "VCAM_DLL=$($dll.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Build camera repair and health probe
+        shell: pwsh
+        run: |
+          python phonebridge-installer/patch_vcam_silent.py phonebridge-vcam/PhoneBridgeVirtualCameraSetup.cpp
+          python phonebridge-v14/patch_vcam_v14.py phonebridge-vcam/PhoneBridgeVirtualCameraSetup.cpp
+          Copy-Item phonebridge-v14/PhoneBridgeCameraProbe.cpp phonebridge-vcam/PhoneBridgeCameraProbe.cpp -Force
+          $cmake=Get-Content phonebridge-vcam/CMakeLists.txt -Raw
+          $cmake += @'
+
+          add_executable(PhoneBridgeCameraProbe WIN32 PhoneBridgeCameraProbe.cpp)
+          target_compile_definitions(PhoneBridgeCameraProbe PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+          target_link_libraries(PhoneBridgeCameraProbe PRIVATE ole32 mf mfplat mfreadwrite mfuuid shell32)
+          '@
+          Set-Content phonebridge-vcam/CMakeLists.txt $cmake
+          cmake -S phonebridge-vcam -B phonebridge-vcam/v16-build -A x64
+          cmake --build phonebridge-vcam/v16-build --config Release --target PhoneBridgeVirtualCameraSetup PhoneBridgeComProbe PhoneBridgeCameraProbe
+          & phonebridge-vcam/v16-build/Release/PhoneBridgeComProbe.exe $env:VCAM_DLL
+          if($LASTEXITCODE -ne 0){throw 'PhoneBridge v1.6 COM class-factory probe failed'}
+
+      - name: Download matching Android APK and proven v1.5 receiver
+        uses: actions/download-artifact@v4
+        with:
+          name: PhoneBridge-Android-v1.6-APK
+          path: validated/android
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: Mohan238-web/my-life-manager
+          run-id: 31699417979
+          name: PhoneBridge-v1.5-Package
+          path: validated/v15
+
+      - name: Package PhoneBridge v1.6 camera update
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force phonebridge-v16/package-v16 | Out-Null
+          $apk=Get-ChildItem validated/android -Recurse -Filter '*.apk' | Select-Object -First 1
+          $receiver=Get-ChildItem validated/v15 -Recurse -Filter 'PhoneBridge-v1.5.exe' | Select-Object -First 1
+          if(-not $apk -or -not $receiver){throw 'v1.6 package dependency missing'}
+          Copy-Item $apk.FullName phonebridge-v16/package-v16/PhoneBridge-v1.6.apk
+          Copy-Item $receiver.FullName phonebridge-v16/package-v16/PhoneBridge-v1.5.exe
+          Copy-Item $env:VCAM_DLL phonebridge-v16/package-v16/VirtualCameraMediaSource.dll
+          Copy-Item phonebridge-vcam/v16-build/Release/PhoneBridgeVirtualCameraSetup.exe phonebridge-v16/package-v16/PhoneBridgeVirtualCameraSetup.exe
+          Copy-Item phonebridge-vcam/v16-build/Release/PhoneBridgeCameraProbe.exe phonebridge-v16/package-v16/PhoneBridgeCameraProbe.exe
+          @'
+          PhoneBridge v1.6 - Camera Framing / Orientation / Low-Latency Update
+
+          PRESERVED
+          - PhoneBridge v1.5 Windows receiver/audio engine is unchanged.
+          - VB-CABLE buffered microphone path is unchanged.
+          - Proven Android NV21/JPEG color/rotation sender is preserved.
+          - Android foreground-service background streaming remains enabled.
+
+          ANDROID CAMERA MATCH
+          - Preview and ImageAnalysis now use the same CameraX ResolutionSelector.
+          - When a PreviewView viewport is available, Preview + ImageAnalysis are bound in one UseCaseGroup with the same ViewPort.
+          - This makes the transmitted front/rear framing closely match the FIT_CENTER phone preview.
+          - When the app goes to background, PhoneBridge intentionally returns to analysis-only binding so video sharing continues without an Activity surface.
+
+          WINDOWS VIRTUAL CAMERA
+          - Native formats include 1280x720 landscape and 720x1280 portrait at 30 FPS, in NV12 and RGB32.
+          - When a camera session opens, PhoneBridge reads the current video.bus dimensions and makes the matching phone orientation the preferred/default native format.
+          - The frame renderer uses FIT_CENTER. Portrait is never stretched into a wide landscape face.
+          - If the phone rotates while a browser already holds the previous negotiated size, the image immediately keeps correct proportions with bars; many browser/recorder apps require camera close/reopen before they renegotiate to the opposite 720p orientation.
+          - Last complete frame is repeated while video.bus is being updated, eliminating black-frame flicker.
+          - Persistent mapped bus + exact-size memcpy fast path reduces virtual-camera delay compared with reopening/mapping/scaling every sample.
+
+          INSTALL
+          1. Close Chrome/Edge/Firefox, Camera, Zoom, Teams and OBS.
+          2. Install PhoneBridge-v1.6.apk on Android (same app; settings are retained on normal upgrade).
+          3. Keep VirtualCameraMediaSource.dll beside PhoneBridgeVirtualCameraSetup.exe.
+          4. Run PhoneBridgeVirtualCameraSetup.exe as Administrator.
+          5. Restart Windows once so Camera Frame Server cannot keep the old DLL cached.
+          6. Run PhoneBridge-v1.5.exe, connect the phone and use 720p / 30 FPS.
+          7. Put the phone in the orientation you want BEFORE opening the browser camera for a full native 1280x720 or 720x1280 session.
+          8. Run PhoneBridgeCameraProbe.exe, then open the browser/recorder and select PhoneBridge Camera.
+          '@ | Set-Content phonebridge-v16/package-v16/README-v1.6.txt
+          $files=Get-ChildItem phonebridge-v16/package-v16 -File
+          ($files | ForEach-Object { "$( (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower() )  $($_.Name)" }) | Set-Content phonebridge-v16/package-v16/SHA256.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhoneBridge-v1.6-Camera-Package
+          path: phonebridge-v16/package-v16/*
+          if-no-files-found: error
