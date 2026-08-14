@@ -1,0 +1,177 @@
+name: Build PhoneBridge v1.7
+
+on:
+  push:
+    branches: [phonebridge-build]
+    paths:
+      - '.github/workflows/build-phonebridge-v1.7.yml'
+      - 'phonebridge-v17/**'
+      - 'phonebridge-v16/patch_vcam_stable720_v161.py'
+      - 'phonebridge-vcam/**'
+      - 'phonebridge-v14/**'
+      - 'phonebridge-v15/**'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  windows:
+    name: Windows v1.7 stable camera and resilient audio
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rebuild exact proven PhoneBridge source baseline
+        shell: pwsh
+        run: |
+          $names = 'p1-0','p1-1','p1-2','p1-3','part2','p3-0','p3-1','p3-2','p3-3','part4'
+          $b64 = ($names | ForEach-Object { Get-Content "phonebridge-source/$_.b64" -Raw }) -join ''
+          [IO.File]::WriteAllBytes('PhoneBridge-source.rebuilt.zip', [Convert]::FromBase64String($b64))
+          Expand-Archive -Path PhoneBridge-source.rebuilt.zip -DestinationPath . -Force
+          $v1Names = 'v1patch-00','v1patch-01','v1patch-02'
+          $v1b64 = ($v1Names | ForEach-Object { Get-Content "phonebridge-v1/$_.b64" -Raw }) -join ''
+          [IO.File]::WriteAllBytes('PhoneBridge-v1-patches.zip', [Convert]::FromBase64String($v1b64))
+          Expand-Archive -Path PhoneBridge-v1-patches.zip -DestinationPath PhoneBridge-v1-patches -Force
+
+      - name: Build static libjpeg-turbo 3.2.0
+        shell: pwsh
+        run: |
+          git clone --branch 3.2.0 --depth 1 https://github.com/libjpeg-turbo/libjpeg-turbo.git libjpeg-turbo
+          $prefix = Join-Path $PWD 'libjpeg-install'
+          cmake -S libjpeg-turbo -B libjpeg-build -A x64 -DENABLE_SHARED=OFF -DENABLE_STATIC=ON -DWITH_TURBOJPEG=ON -DWITH_TOOLS=OFF -DWITH_TESTS=OFF -DWITH_SIMD=OFF -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded "-DCMAKE_INSTALL_PREFIX=$prefix"
+          cmake --build libjpeg-build --config Release --target install
+
+      - name: Build v1.7 receiver with resilient VB-CABLE audio
+        shell: pwsh
+        run: |
+          Copy-Item phonebridge-patches/Receiver.cpp PhoneBridge/windows/native/Receiver.cpp -Force
+          Copy-Item phonebridge-patches/JpegDecoder.cpp PhoneBridge/windows/native/JpegDecoder.cpp -Force
+          Copy-Item phonebridge-patches/JpegDecoder.h PhoneBridge/windows/native/JpegDecoder.h -Force
+          Copy-Item phonebridge-patches/DecoderSelfTest.cpp PhoneBridge/windows/native/DecoderSelfTest.cpp -Force
+          Copy-Item phonebridge-patches/CMakeLists.txt PhoneBridge/windows/native/CMakeLists.txt -Force
+          Copy-Item phonebridge-patches/SharedBus.cpp PhoneBridge/windows/native/SharedBus.cpp -Force
+          Copy-Item phonebridge-patches/SharedBus.h PhoneBridge/windows/native/SharedBus.h -Force
+          python phonebridge-patches/add_raw_jpeg_diagnostic.py PhoneBridge/windows/native/Receiver.cpp
+          python phonebridge-patches/fix_preview_direct2d.py PhoneBridge/windows/native/Receiver.cpp
+          python PhoneBridge-v1-patches/upgrade_v1_windows.py PhoneBridge/windows/native/Receiver.cpp
+          python phonebridge-v11/harden_windows.py PhoneBridge/windows/native/Receiver.cpp
+          python phonebridge-v12/upgrade_v12_windows.py PhoneBridge/windows/native/Receiver.cpp
+          Copy-Item phonebridge-v15/VBCableBridge.h PhoneBridge/windows/native/VBCableBridge.h -Force
+          Copy-Item phonebridge-v17/VBCableBridge.cpp PhoneBridge/windows/native/VBCableBridge.cpp -Force
+          python phonebridge-v14/upgrade_v14_windows.py PhoneBridge/windows/native/Receiver.cpp
+          python phonebridge-v15/upgrade_v15_windows.py PhoneBridge/windows/native/Receiver.cpp
+          python phonebridge-v17/upgrade_v17_windows.py PhoneBridge/windows/native/Receiver.cpp
+
+          $cmake=Get-Content PhoneBridge/windows/native/CMakeLists.txt -Raw
+          $cmake=$cmake.Replace('add_executable(PhoneBridgeReceiver WIN32 Receiver.cpp JpegDecoder.cpp SharedBus.cpp)','add_executable(PhoneBridgeReceiver WIN32 Receiver.cpp JpegDecoder.cpp SharedBus.cpp VBCableBridge.cpp)')
+          $cmake=$cmake.Replace(
+            'target_link_libraries(PhoneBridgeReceiver PRIVATE ws2_32 ole32 shlwapi comctl32 libjpeg-turbo::turbojpeg-static)',
+            'target_link_libraries(PhoneBridgeReceiver PRIVATE ws2_32 ole32 shlwapi comctl32 shell32 mfplat mfreadwrite mfuuid uuid propsys libjpeg-turbo::turbojpeg-static)'
+          )
+          Set-Content PhoneBridge/windows/native/CMakeLists.txt $cmake
+
+          $src=Get-Content PhoneBridge/windows/native/Receiver.cpp -Raw
+          foreach($marker in @('D2D1CreateFactory','DXGI_FORMAT_B8G8R8A8_UNORM','PhoneBridge-v1.7-SingleInstance','Resilient no-echo browser mic ON','VBCableBridge')){if(-not $src.Contains($marker)){throw "v1.7 receiver marker missing: $marker"}}
+          $audio=Get-Content PhoneBridge/windows/native/VBCableBridge.cpp -Raw
+          foreach($marker in @('kPrefillSamples = kRate * 180','ONE lock per WASAPI block','kRebufferFrames','+12 dB nominal voice gain','Gentler 2:1 compression')){if(-not $audio.Contains($marker)){throw "v1.7 audio marker missing: $marker"}}
+          if($audio.Contains('takeSample(')){throw 'Regression: per-sample mutex audio path returned'}
+          if($src.Contains('Stereo Mix') -or $src.Contains('StereoMixBridge')){throw 'Regression: Stereo Mix feedback path returned'}
+          if($src.Contains('StretchDIBits(')){throw 'Regression: legacy color renderer returned'}
+
+          $prefix=Join-Path $PWD 'libjpeg-install'
+          cmake -S PhoneBridge/windows/native -B PhoneBridge/windows/build-v17 -A x64 "-DCMAKE_PREFIX_PATH=$prefix"
+          cmake --build PhoneBridge/windows/build-v17 --config Release
+          PhoneBridge/windows/build-v17/Release/PhoneBridgeDecoderSelfTest.exe
+
+      - name: Clone and patch stable 720p virtual camera
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/microsoft/Windows-Camera.git windows-camera
+          nuget restore windows-camera/Samples/VirtualCamera/VirtualCameraSample.sln -PackagesDirectory windows-camera/Samples/VirtualCamera/packages -NonInteractive
+          $frame='windows-camera/Samples/VirtualCamera/VirtualCameraMediaSource/SimpleFrameGenerator.cpp'
+          $stream='windows-camera/Samples/VirtualCamera/VirtualCameraMediaSource/SimpleMediaStream.cpp'
+          python phonebridge-vcam/patch_vcam.py $frame
+          python phonebridge-v17/patch_vcam_safe_fit_v17.py $frame
+          python phonebridge-v16/patch_vcam_stable720_v161.py $stream
+          python phonebridge-vcam/test_color_math.py
+          foreach($marker in @('PhoneBridgeStableFitReader v1.7','s_cached.swap(candidate)','PhoneBridgeColorSafeNV12')){if(-not (Select-String -Path $frame -Pattern ([regex]::Escape($marker)) -Quiet)){throw "v1.7 camera marker missing: $marker"}}
+          foreach($marker in @('PhoneBridgeStable720 v1.6.1','#define NUM_IMAGE_ROWS 720','#define NUM_IMAGE_COLS 1280')){if(-not (Select-String -Path $stream -Pattern ([regex]::Escape($marker)) -Quiet)){throw "stable720 marker missing: $marker"}}
+          if(Select-String -Path $frame -Pattern 'InterlockedCompareExchange\(reinterpret_cast<volatile LONG\*>\(s_view\)' -Quiet){throw 'Regression: read-modify-write sequence read returned'}
+
+      - name: Build v1.7 virtual camera media source
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
+          if(-not $msbuild){throw 'MSBuild not found'}
+          & $msbuild windows-camera/Samples/VirtualCamera/VirtualCameraMediaSource/VirtualCameraMediaSource.vcxproj /m /p:Configuration=Release /p:Platform=x64 /p:SolutionDir="$PWD\windows-camera\Samples\VirtualCamera\" /verbosity:minimal
+          $dll=Get-ChildItem windows-camera -Recurse -Filter VirtualCameraMediaSource.dll | Select-Object -First 1
+          if(-not $dll){throw 'VirtualCameraMediaSource.dll not produced'}
+          "VCAM_DLL=$($dll.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Build setup and stream-tick tolerant health probe
+        shell: pwsh
+        run: |
+          python phonebridge-installer/patch_vcam_silent.py phonebridge-vcam/PhoneBridgeVirtualCameraSetup.cpp
+          python phonebridge-v14/patch_vcam_v14.py phonebridge-vcam/PhoneBridgeVirtualCameraSetup.cpp
+          Copy-Item phonebridge-v17/PhoneBridgeCameraProbeV17.cpp phonebridge-vcam/PhoneBridgeCameraProbe.cpp -Force
+          $cmake=Get-Content phonebridge-vcam/CMakeLists.txt -Raw
+          $cmake += @'
+
+          add_executable(PhoneBridgeCameraProbe WIN32 PhoneBridgeCameraProbe.cpp)
+          target_compile_definitions(PhoneBridgeCameraProbe PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+          target_link_libraries(PhoneBridgeCameraProbe PRIVATE ole32 mf mfplat mfreadwrite mfuuid shell32)
+          '@
+          Set-Content phonebridge-vcam/CMakeLists.txt $cmake
+          cmake -S phonebridge-vcam -B phonebridge-vcam/v17-build -A x64
+          cmake --build phonebridge-vcam/v17-build --config Release --target PhoneBridgeVirtualCameraSetup PhoneBridgeComProbe PhoneBridgeCameraProbe
+          & phonebridge-vcam/v17-build/Release/PhoneBridgeComProbe.exe $env:VCAM_DLL
+          if($LASTEXITCODE -ne 0){throw 'PhoneBridge v1.7 COM class-factory probe failed'}
+
+      - name: Package PhoneBridge v1.7
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force phonebridge-v17/package/Camera | Out-Null
+          Copy-Item PhoneBridge/windows/build-v17/Release/PhoneBridgeReceiver.exe phonebridge-v17/package/PhoneBridge-v1.7.exe
+          Copy-Item $env:VCAM_DLL phonebridge-v17/package/Camera/VirtualCameraMediaSource.dll
+          Copy-Item phonebridge-vcam/v17-build/Release/PhoneBridgeVirtualCameraSetup.exe phonebridge-v17/package/Camera/PhoneBridgeVirtualCameraSetup.exe
+          Copy-Item phonebridge-vcam/v17-build/Release/PhoneBridgeCameraProbe.exe phonebridge-v17/package/Camera/PhoneBridgeCameraProbe.exe
+          @'
+          PhoneBridge v1.7 - Camera Recovery + Resilient Voice
+
+          Keep the existing PhoneBridge v1.6 Android APK.
+
+          CAMERA
+          - Native Windows virtual-camera format remains one stable 1280x720 @ 30 FPS format.
+          - The Frame Server reader returns to per-sample open/map/copy semantics for reliability.
+          - Sequence counters are read without read-modify-write operations on read-only memory.
+          - Last complete frame is cached to avoid black flashes.
+          - FIT_CENTER preserves portrait proportions instead of stretching faces.
+          - The health probe no longer treats an initial Media Foundation STREAMTICK (0x100) as a failure; it waits for a real sample.
+
+          AUDIO
+          - VB-CABLE remains the browser microphone endpoint; Stereo Mix remains removed.
+          - 180 ms initial jitter safety buffer, 90/300 ms drift watermarks, 1 second hard queue cap.
+          - One mutex lock per WASAPI render block instead of one lock for every 48 kHz sample.
+          - Brief network underflow is concealed/faded and does not force a 180 ms restart unless the outage exceeds 80 ms.
+          - +12 dB nominal gain, 80 Hz high-pass, mild presence, gentler 2:1 compression, -1 dBFS limiter.
+
+          UPDATE
+          1. Close PhoneBridge, all browsers, Camera, Zoom, Teams and OBS.
+          2. Open the Camera folder. Keep the setup EXE and DLL together.
+          3. Run PhoneBridgeVirtualCameraSetup.exe as Administrator.
+          4. Restart Windows once.
+          5. Run PhoneBridge-v1.7.exe and connect the existing v1.6 Android app.
+          6. Enable Browser mic via VB-CABLE; select CABLE Output in the browser/recorder.
+          7. Before opening a browser camera, run Camera/PhoneBridgeCameraProbe.exe. It will wait through startup stream ticks and only PASS after a real frame arrives.
+          '@ | Set-Content phonebridge-v17/package/README-v1.7.txt
+          $files=Get-ChildItem phonebridge-v17/package -Recurse -File
+          ($files | ForEach-Object { "$( (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower() )  $($_.FullName.Substring((Resolve-Path phonebridge-v17/package).Path.Length+1))" }) | Set-Content phonebridge-v17/package/SHA256.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhoneBridge-v1.7-Package
+          path: phonebridge-v17/package/**
+          if-no-files-found: error
