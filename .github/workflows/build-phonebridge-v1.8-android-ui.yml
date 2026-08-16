@@ -1,0 +1,111 @@
+name: Build PhoneBridge v1.8 Android UI
+
+on:
+  push:
+    branches: [phonebridge-build]
+    paths:
+      - '.github/workflows/build-phonebridge-v1.8-android-ui.yml'
+      - 'phonebridge-v18/**'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  android:
+    name: Android v1.8 UI and persistent settings
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rebuild exact proven v1.6 Android baseline
+        run: |
+          cat phonebridge-source/p1-0.b64 phonebridge-source/p1-1.b64 phonebridge-source/p1-2.b64 phonebridge-source/p1-3.b64 phonebridge-source/part2.b64 phonebridge-source/p3-0.b64 phonebridge-source/p3-1.b64 phonebridge-source/p3-2.b64 phonebridge-source/p3-3.b64 phonebridge-source/part4.b64 | base64 -d > PhoneBridge-source.rebuilt.zip
+          unzip -q PhoneBridge-source.rebuilt.zip
+          mkdir -p PhoneBridge-v1-patches
+          cat phonebridge-v1/v1patch-00.b64 phonebridge-v1/v1patch-01.b64 phonebridge-v1/v1patch-02.b64 | base64 -d > PhoneBridge-v1-patches.zip
+          unzip -q PhoneBridge-v1-patches.zip -d PhoneBridge-v1-patches
+          cp phonebridge-patches/StreamService.java PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          cp phonebridge-patches/YuvTools.java PhoneBridge/android/app/src/main/java/com/phonebridge/app/YuvTools.java
+          python phonebridge-patches/fix_camera_main_thread.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          python phonebridge-patches/fix_av_quality.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          python phonebridge-patches/fix_color_rotation_v2.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          python phonebridge-patches/fix_color_depth_resolution_v3.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          python phonebridge-patches/fix_standard_nv21_v4.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          cp PhoneBridge-v1-patches/MainActivityV1.java PhoneBridge/android/app/src/main/java/com/phonebridge/app/MainActivity.java
+          python PhoneBridge-v1-patches/upgrade_v1_android.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          python phonebridge-v12/upgrade_v12_android.py PhoneBridge
+          python phonebridge-v16/upgrade_v16_android.py PhoneBridge
+          sha256sum PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java > /tmp/service-before.sha
+
+      - name: Apply UI-only v1.8 Activity
+        run: |
+          cp phonebridge-v18/MainActivityV18.java PhoneBridge/android/app/src/main/java/com/phonebridge/app/MainActivity.java
+          sha256sum PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java > /tmp/service-after.sha
+          diff -u /tmp/service-before.sha /tmp/service-after.sha
+
+      - name: Stamp version without changing service or manifest behavior
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('PhoneBridge/android/app/src/main/AndroidManifest.xml')
+          s=p.read_text()
+          if 'android.permission.WAKE_LOCK' not in s:
+              s=s.replace('<uses-permission android:name="android.permission.INTERNET" />','<uses-permission android:name="android.permission.WAKE_LOCK" />\n    <uses-permission android:name="android.permission.INTERNET" />')
+          s=s.replace('android:foregroundServiceType="camera|microphone" />','android:foregroundServiceType="camera|microphone"\n            android:stopWithTask="false" />')
+          p.write_text(s)
+          g=Path('PhoneBridge/android/app/build.gradle.kts')
+          t=g.read_text().replace('compileSdk = 37','compileSdk = 36').replace('targetSdk = 37','targetSdk = 36')
+          t=t.replace('versionCode = 1','versionCode = 18').replace('versionName = "1.0.0"','versionName = "1.8.0"')
+          g.write_text(t)
+          PY
+
+      - name: Verify protected functionality and new UI
+        run: |
+          S=PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          M=PhoneBridge/android/app/src/main/java/com/phonebridge/app/MainActivity.java
+          grep -q 'OUTPUT_IMAGE_FORMAT_NV21' "$S"
+          grep -q 'fromCameraXStandardNv21' "$S"
+          grep -q 'OrientationEventListener' "$S"
+          grep -q 'START_STICKY' "$S"
+          grep -q 'provider.bindToLifecycle(this, selector, analysis)' "$S"
+          grep -q 'PhoneBridge v1.6 preview/share match' "$S"
+          grep -q 'setResolutionSelector(resolutionSelector)' "$S"
+          grep -q 'UseCaseGroup.Builder' "$S"
+          grep -q 'group.setViewPort(viewPort)' "$S"
+          grep -q 'PreviewView.ScaleType.FIT_CENTER' "$M"
+          grep -q 'Remember Buttons' "$M"
+          grep -q 'Run With' "$M"
+          grep -q 'Share Camera' "$M"
+          grep -q 'Share Microphone' "$M"
+          grep -q 'trusted_host' "$M"
+          grep -q 'trusted_pin' "$M"
+          grep -q 'setUiForeground(false)' "$M"
+          grep -q 'Reset saved settings' "$M"
+          if grep -q 'OUTPUT_IMAGE_FORMAT_RGBA_8888' "$S"; then echo 'Regression: bad RGBA path returned' >&2; exit 1; fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - name: Install Android SDK
+        run: sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+      - name: Build PhoneBridge v1.8 APK
+        run: gradle -p PhoneBridge/android --stacktrace assembleDebug
+      - name: Package APK and source checksum
+        run: |
+          mkdir -p release
+          cp PhoneBridge/android/app/build/outputs/apk/debug/app-debug.apk release/PhoneBridge-v1.8-UI.apk
+          sha256sum release/PhoneBridge-v1.8-UI.apk > release/SHA256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhoneBridge-Android-v1.8-UI
+          path: release/*
+          if-no-files-found: error
