@@ -14,33 +14,183 @@ def rm(text,old,new,label):
 
 main=rm(main,'import android.os.IBinder;\n','import android.os.IBinder;\nimport android.net.Uri;\n','uri import')
 main=rm(main,'import androidx.activity.ComponentActivity;\n','import androidx.activity.ComponentActivity;\nimport androidx.activity.result.ActivityResultLauncher;\n','activity result import')
-main=rm(main,'import androidx.core.content.ContextCompat;\n','''import androidx.core.content.ContextCompat;\n\nimport com.journeyapps.barcodescanner.ScanContract;\nimport com.journeyapps.barcodescanner.ScanOptions;\n''','zxing imports')
-main=rm(main,'    private boolean torch;\n    private int zoomProgress;\n','''    private boolean torch;\n    private int zoomProgress;\n    private ActivityResultLauncher<ScanOptions> qrScanner;\n    private String pendingQrToken = "";\n''','qr fields')
-main=rm(main,'        getWindow().setStatusBarColor(Color.rgb(247, 248, 250));\n', '''        qrScanner = registerForActivityResult(new ScanContract(), result -> {\n            if (result != null && result.getContents() != null) handlePairingQr(result.getContents());\n        });\n        getWindow().setStatusBarColor(Color.rgb(247, 248, 250));\n''','qr launcher')
-main=rm(main,'''        Button discover = button("Find PC");\n        discover.setOnClickListener(v -> discoverPc());\n        connectionCard.addView(discover, new LinearLayout.LayoutParams(-1, dp(46)));\n''','''        LinearLayout pairRow = row();\n        Button discover = button("Find PC");\n        discover.setOnClickListener(v -> discoverPc());\n        pairRow.addView(discover, weight());\n        Button scanQr = button("Scan pairing QR");\n        scanQr.setOnClickListener(v -> scanPairingQr());\n        pairRow.addView(scanQr, weight());\n        connectionCard.addView(pairRow, new LinearLayout.LayoutParams(-1, dp(48)));\n''','scan button')
+main=rm(main,'import androidx.core.content.ContextCompat;\n','''import androidx.core.content.ContextCompat;
 
-anchor='''    private void maybeAutoConnect() {\n'''
-methods='''    private void scanPairingQr() {\n        if (service != null && service.isStreaming()) {\n            status.setText("Disconnect PhoneBridge before scanning a new PC QR");\n            return;\n        }\n        ScanOptions options = new ScanOptions();\n        options.setDesiredBarcodeFormats(ScanOptions.QR_CODE);\n        options.setPrompt("Scan the PhoneBridge pairing QR shown on the PC");\n        options.setBeepEnabled(false);\n        options.setOrientationLocked(false);\n        qrScanner.launch(options);\n    }\n\n    private void handlePairingQr(String contents) {\n        try {\n            Uri uri = Uri.parse(contents == null ? "" : contents.trim());\n            if (!"phonebridge".equalsIgnoreCase(uri.getScheme()) || !"pair".equalsIgnoreCase(uri.getHost())) {\n                status.setText("This is not a PhoneBridge pairing QR");\n                return;\n            }\n            String h = uri.getQueryParameter("host");\n            String token = uri.getQueryParameter("token");\n            String port = uri.getQueryParameter("port");\n            if (h == null || h.trim().isEmpty() || token == null || token.length() < 24 || token.length() > 128 || (port != null && !"8989".equals(port))) {\n                status.setText("PhoneBridge pairing QR is invalid or incomplete");\n                return;\n            }\n            pendingQrToken = token;\n            host.setText(h.trim());\n            prefs().edit().putString(KEY_HOST, h.trim()).apply();\n            refreshAddressSummary();\n            status.setText("QR scanned • connecting securely…");\n            if (service != null && !service.isStreaming() && hasRequiredPermissions()) {\n                startConnection(h.trim(), pin.getText().toString().trim(), false);\n            } else {\n                status.setText("QR scanned • tap Connect when PhoneBridge is ready");\n            }\n        } catch (Exception e) {\n            status.setText("Could not read the PhoneBridge pairing QR");\n        }\n    }\n\n'''+anchor
+import com.journeyapps.barcodescanner.ScanContract;
+import com.journeyapps.barcodescanner.ScanOptions;
+''','zxing imports')
+main=rm(main,'    private boolean torch;\n    private int zoomProgress;\n','''    private boolean torch;
+    private int zoomProgress;
+    private ActivityResultLauncher<ScanOptions> qrScanner;
+    private String pendingQrToken = "";
+''','qr fields')
+main=rm(main,'        getWindow().setStatusBarColor(Color.rgb(247, 248, 250));\n', '''        qrScanner = registerForActivityResult(new ScanContract(), result -> {
+            if (result != null && result.getContents() != null) handlePairingQr(result.getContents());
+        });
+        getWindow().setStatusBarColor(Color.rgb(247, 248, 250));
+''','qr launcher')
+main=rm(main,'''        Button discover = button("Find PC");
+        discover.setOnClickListener(v -> discoverPc());
+        connectionCard.addView(discover, new LinearLayout.LayoutParams(-1, dp(46)));
+''','''        LinearLayout pairRow = row();
+        Button discover = button("Find PC");
+        discover.setOnClickListener(v -> discoverPc());
+        pairRow.addView(discover, weight());
+        Button scanQr = button("Scan pairing QR");
+        scanQr.setOnClickListener(v -> scanPairingQr());
+        pairRow.addView(scanQr, weight());
+        connectionCard.addView(pairRow, new LinearLayout.LayoutParams(-1, dp(48)));
+''','scan button')
+
+anchor='''    private void maybeAutoConnect() {
+'''
+methods='''    private void scanPairingQr() {
+        if (service != null && service.isStreaming()) {
+            status.setText("Disconnect PhoneBridge before scanning a new PC QR");
+            return;
+        }
+        ScanOptions options = new ScanOptions();
+        options.setDesiredBarcodeFormats(ScanOptions.QR_CODE);
+        options.setPrompt("Scan the PhoneBridge pairing QR shown on the PC");
+        options.setBeepEnabled(false);
+        options.setOrientationLocked(false);
+        qrScanner.launch(options);
+    }
+
+    private void handlePairingQr(String contents) {
+        try {
+            Uri uri = Uri.parse(contents == null ? "" : contents.trim());
+            if (!"phonebridge".equalsIgnoreCase(uri.getScheme()) || !"pair".equalsIgnoreCase(uri.getHost())) {
+                status.setText("This is not a PhoneBridge pairing QR");
+                return;
+            }
+            String h = uri.getQueryParameter("host");
+            String token = uri.getQueryParameter("token");
+            String port = uri.getQueryParameter("port");
+            if (h == null || h.trim().isEmpty() || token == null || token.length() < 24 || token.length() > 128 || (port != null && !"8989".equals(port))) {
+                status.setText("PhoneBridge pairing QR is invalid or incomplete");
+                return;
+            }
+            pendingQrToken = token;
+            host.setText(h.trim());
+            prefs().edit().putString(KEY_HOST, h.trim()).apply();
+            refreshAddressSummary();
+            status.setText("QR scanned • connecting securely…");
+            if (service != null && !service.isStreaming() && hasRequiredPermissions()) {
+                startConnection(h.trim(), pin.getText().toString().trim(), false);
+            } else {
+                status.setText("QR scanned • tap Connect when PhoneBridge is ready");
+            }
+        } catch (Exception e) {
+            status.setText("Could not read the PhoneBridge pairing QR");
+        }
+    }
+
+'''+anchor
 if anchor not in main: raise SystemExit('maybeAutoConnect anchor')
 main=main.replace(anchor,methods,1)
 
-main=rm(main,'''        if (p.length() != 6) {\n            status.setText("Set the six-digit PIN in Settings");\n            showSettings(true);\n            return;\n        }\n        saveTrustedPc();\n        startConnection(h, p, false);\n''','''        if (p.length() != 6 && pendingQrToken.isEmpty()) {\n            status.setText("Set the six-digit PIN or scan the PC pairing QR in Settings");\n            showSettings(true);\n            return;\n        }\n        if (p.length() == 6) saveTrustedPc(); else prefs().edit().putString(KEY_HOST, h).apply();\n        startConnection(h, p, false);\n''','toggle qr')
-main=rm(main,'        service.startStreaming(h, 8989, p);\n','''        String qrToken = pendingQrToken;\n        pendingQrToken = "";\n        service.startStreaming(h, 8989, p, qrToken);\n''','start with token')
-main=rm(main,'''            if (value != null && value.startsWith("Connected")) {\n                saveTrustedPc();\n                applyRememberedLiveControls();\n            }\n''','''            if (value != null && value.startsWith("Connected")) {\n                if (pin.getText().toString().trim().length() == 6) saveTrustedPc();\n                applyRememberedLiveControls();\n            }\n            if (value != null && value.startsWith("QR pairing complete")) {\n                String trusted = prefs().getString(KEY_PIN, "");\n                if (trusted.length() == 6 && !trusted.equals(pin.getText().toString())) pin.setText(trusted);\n                pendingQrToken = "";\n            }\n''','qr trusted ui')
+main=rm(main,'        if (p.length() != 6) { status.setText("Set the six-digit PIN in Settings"); showSettings(true); return; }\n        saveTrustedPc(); startConnection(h, p, false);\n','''        if (p.length() != 6 && pendingQrToken.isEmpty()) { status.setText("Set the six-digit PIN or scan the PC pairing QR in Settings"); showSettings(true); return; }
+        if (p.length() == 6) saveTrustedPc(); else prefs().edit().putString(KEY_HOST, h).apply();
+        startConnection(h, p, false);
+''','toggle qr')
+main=rm(main,'        service.startStreaming(h, 8989, p); refreshButtons();\n','''        String qrToken = pendingQrToken;
+        pendingQrToken = "";
+        service.startStreaming(h, 8989, p, qrToken); refreshButtons();
+''','start with token')
+main=rm(main,'            if (value != null && value.startsWith("Connected")) { saveTrustedPc(); applyRememberedLiveControls(); }\n','''            if (value != null && value.startsWith("Connected")) {
+                if (pin.getText().toString().trim().length() == 6) saveTrustedPc();
+                applyRememberedLiveControls();
+            }
+            if (value != null && value.startsWith("QR pairing complete")) {
+                String trusted = prefs().getString(KEY_PIN, "");
+                if (trusted.length() == 6 && !trusted.equals(pin.getText().toString())) pin.setText(trusted);
+                pendingQrToken = "";
+            }
+''','qr trusted ui')
 main=main.replace('PhoneBridge v1.8 • UI & saved settings','PhoneBridge v1.9 • QR pairing + saved settings')
 
-svc=rm(svc,'    private volatile AudioRecord audioRecord;\n','''    private volatile AudioRecord audioRecord;\n    private volatile String currentPairPin = "";\n    private volatile String oneTimePairToken = "";\n    private volatile String currentPairHost = "";\n''','service pairing fields')
-old='''    public void startStreaming(String host, int port, String pin) {\n        if (!streaming.compareAndSet(false, true)) return;\n        startForeground(7, buildNotification("Connecting to " + host));\n        acquireWakeLock();\n        startedAt = System.currentTimeMillis();\n        bytesSent = 0;\n        videoFramesSent = 0;\n        audioPacketsSent = 0;\n        notifyStatus("Connecting…");\n        networkExecutor.execute(() -> connectLoop(host, port, pin));\n        if (videoEnabled) startCamera();\n        if (shouldCaptureAudio()) startAudio();\n    }\n'''
-new='''    public void startStreaming(String host, int port, String pin) {\n        startStreaming(host, port, pin, "");\n    }\n\n    public void startStreaming(String host, int port, String pin, String pairToken) {\n        if (!streaming.compareAndSet(false, true)) return;\n        currentPairHost = host == null ? "" : host;\n        currentPairPin = pin == null ? "" : pin;\n        oneTimePairToken = pairToken == null ? "" : pairToken;\n        startForeground(7, buildNotification("Connecting to " + host));\n        acquireWakeLock();\n        startedAt = System.currentTimeMillis();\n        bytesSent = 0;\n        videoFramesSent = 0;\n        audioPacketsSent = 0;\n        notifyStatus("Connecting…");\n        networkExecutor.execute(() -> connectLoop(host, port));\n        if (videoEnabled) startCamera();\n        if (shouldCaptureAudio()) startAudio();\n    }\n'''
+svc=rm(svc,'    private volatile AudioRecord audioRecord;\n','''    private volatile AudioRecord audioRecord;
+    private volatile String currentPairPin = "";
+    private volatile String oneTimePairToken = "";
+    private volatile String currentPairHost = "";
+''','service pairing fields')
+old='''    public void startStreaming(String host, int port, String pin) {
+        if (!streaming.compareAndSet(false, true)) return;
+        startForeground(7, buildNotification("Connecting to " + host));
+        acquireWakeLock();
+        startedAt = System.currentTimeMillis();
+        bytesSent = 0;
+        videoFramesSent = 0;
+        audioPacketsSent = 0;
+        notifyStatus("Connecting…");
+        networkExecutor.execute(() -> connectLoop(host, port, pin));
+        if (videoEnabled) startCamera();
+        if (shouldCaptureAudio()) startAudio();
+    }
+'''
+new='''    public void startStreaming(String host, int port, String pin) {
+        startStreaming(host, port, pin, "");
+    }
+
+    public void startStreaming(String host, int port, String pin, String pairToken) {
+        if (!streaming.compareAndSet(false, true)) return;
+        currentPairHost = host == null ? "" : host;
+        currentPairPin = pin == null ? "" : pin;
+        oneTimePairToken = pairToken == null ? "" : pairToken;
+        startForeground(7, buildNotification("Connecting to " + host));
+        acquireWakeLock();
+        startedAt = System.currentTimeMillis();
+        bytesSent = 0;
+        videoFramesSent = 0;
+        audioPacketsSent = 0;
+        notifyStatus("Connecting…");
+        networkExecutor.execute(() -> connectLoop(host, port));
+        if (videoEnabled) startCamera();
+        if (shouldCaptureAudio()) startAudio();
+    }
+'''
 svc=rm(svc,old,new,'startStreaming overload')
 svc=rm(svc,'    private void connectLoop(String host, int port, String pin) {\n','    private void connectLoop(String host, int port) {\n','connect loop signature')
-svc=rm(svc,'                Protocol.writeJson(out, Protocol.TYPE_PAIR, "{\\\"pin\\\":\\\"" + escape(pin) + "\\\"}");\n', '''                String token = oneTimePairToken;\n                if (token != null && !token.isEmpty()) {\n                    Protocol.writeJson(out, Protocol.TYPE_PAIR, "{\\\"token\\\":\\\"" + escape(token) + "\\\"}");\n                } else {\n                    Protocol.writeJson(out, Protocol.TYPE_PAIR, "{\\\"pin\\\":\\\"" + escape(currentPairPin) + "\\\"}");\n                }\n''','pair json')
+svc=rm(svc,'                Protocol.writeJson(out, Protocol.TYPE_PAIR, "{\\\"pin\\\":\\\"" + escape(pin) + "\\\"}");\n', '''                String token = oneTimePairToken;
+                if (token != null && !token.isEmpty()) {
+                    Protocol.writeJson(out, Protocol.TYPE_PAIR, "{\\\"token\\\":\\\"" + escape(token) + "\\\"}");
+                } else {
+                    Protocol.writeJson(out, Protocol.TYPE_PAIR, "{\\\"pin\\\":\\\"" + escape(currentPairPin) + "\\\"}");
+                }
+''','pair json')
 
-anchor2='''    private void handleControl(String json) {\n'''
-helper='''    private String jsonString(String json, String key) {\n        try {\n            String token = "\\\"" + key + "\\\":\\\"";\n            int p = json.indexOf(token); if (p < 0) return ""; p += token.length();\n            int e = json.indexOf('"', p); if (e < 0) return "";\n            return json.substring(p, e).replace("\\\\\\\"", "\\\"").replace("\\\\\\\\", "\\\\");\n        } catch (Exception ignored) { return ""; }\n    }\n\n'''+anchor2
+anchor2='''    private void handleControl(String json) {
+'''
+helper='''    private String jsonString(String json, String key) {
+        try {
+            String token = "\\\"" + key + "\\\":\\\"";
+            int p = json.indexOf(token); if (p < 0) return ""; p += token.length();
+            int e = json.indexOf('"', p); if (e < 0) return "";
+            return json.substring(p, e).replace("\\\\\\\"", "\\\"").replace("\\\\\\\\", "\\\\");
+        } catch (Exception ignored) { return ""; }
+    }
+
+'''+anchor2
 if anchor2 not in svc: raise SystemExit('handleControl anchor')
 svc=svc.replace(anchor2,helper,1)
-svc=rm(svc,'''    private void handleControl(String json) {\n        if (json.contains("\\\"cmd\\\":\\\"streamConfig\\\"")) {\n''','''    private void handleControl(String json) {\n        if (json.contains("\\\"cmd\\\":\\\"qrTrusted\\\"")) {\n            String trusted = jsonString(json, "pin");\n            if (trusted.matches("\\\\d{6}")) {\n                currentPairPin = trusted;\n                oneTimePairToken = "";\n                getSharedPreferences("phonebridge_v1", MODE_PRIVATE).edit()\n                        .putString("trusted_host", currentPairHost)\n                        .putString("trusted_pin", trusted)\n                        .apply();\n                notifyStatus("QR pairing complete • trusted PC saved");\n            }\n        }\n        if (json.contains("\\\"cmd\\\":\\\"streamConfig\\\"")) {\n''','qr trusted control')
+svc=rm(svc,'''    private void handleControl(String json) {
+        if (json.contains("\\\"cmd\\\":\\\"streamConfig\\\"")) {
+''','''    private void handleControl(String json) {
+        if (json.contains("\\\"cmd\\\":\\\"qrTrusted\\\"")) {
+            String trusted = jsonString(json, "pin");
+            if (trusted.matches("\\\\d{6}")) {
+                currentPairPin = trusted;
+                oneTimePairToken = "";
+                getSharedPreferences("phonebridge_v1", MODE_PRIVATE).edit()
+                        .putString("trusted_host", currentPairHost)
+                        .putString("trusted_pin", trusted)
+                        .apply();
+                notifyStatus("QR pairing complete • trusted PC saved");
+            }
+        }
+        if (json.contains("\\\"cmd\\\":\\\"streamConfig\\\"")) {
+''','qr trusted control')
 svc=rm(svc,'        streaming.set(false);\n','        streaming.set(false);\n        oneTimePairToken = "";\n','clear token stop')
 
 if 'com.journeyapps:zxing-android-embedded' not in gradle:
