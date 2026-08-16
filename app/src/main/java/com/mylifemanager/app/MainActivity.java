@@ -5,6 +5,7 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
+import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
@@ -16,6 +17,12 @@ public class MainActivity extends Activity {
     private WebView webView;
     private ValueCallback<Uri[]> fileCallback;
     private static final int FILE_CHOOSER = 41;
+
+    private final class NativeBridge {
+        @JavascriptInterface public void closeApp() {
+            runOnUiThread(() -> finishAndRemoveTask());
+        }
+    }
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -34,7 +41,13 @@ public class MainActivity extends Activity {
         settings.setBuiltInZoomControls(false);
         settings.setDisplayZoomControls(false);
 
-        webView.setWebViewClient(new WebViewClient());
+        webView.addJavascriptInterface(new NativeBridge(), "NativeApp");
+        webView.setWebViewClient(new WebViewClient() {
+            @Override public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                view.evaluateJavascript("window.MLMCloseApp=function(){NativeApp.closeApp();};", null);
+            }
+        });
         webView.setWebChromeClient(new WebChromeClient() {
             @Override public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
                 if (fileCallback != null) fileCallback.onReceiveValue(null);
