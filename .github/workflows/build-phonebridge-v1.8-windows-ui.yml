@@ -1,0 +1,184 @@
+name: Build PhoneBridge v1.8 Windows UI
+
+on:
+  push:
+    branches: [phonebridge-build]
+    paths:
+      - '.github/workflows/build-phonebridge-v1.8-windows-ui.yml'
+      - 'phonebridge-v18/**'
+      - 'phonebridge-installer/PhoneBridge-v18-stable.iss'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  windows:
+    name: Windows v1.8 persistent UI on proven v1.7 core
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rebuild exact proven PhoneBridge v1.7 receiver baseline
+        shell: pwsh
+        run: |
+          $names = 'p1-0','p1-1','p1-2','p1-3','part2','p3-0','p3-1','p3-2','p3-3','part4'
+          $b64 = ($names | ForEach-Object { Get-Content "phonebridge-source/$_.b64" -Raw }) -join ''
+          [IO.File]::WriteAllBytes('PhoneBridge-source.rebuilt.zip', [Convert]::FromBase64String($b64))
+          Expand-Archive -Path PhoneBridge-source.rebuilt.zip -DestinationPath . -Force
+          $v1Names = 'v1patch-00','v1patch-01','v1patch-02'
+          $v1b64 = ($v1Names | ForEach-Object { Get-Content "phonebridge-v1/$_.b64" -Raw }) -join ''
+          [IO.File]::WriteAllBytes('PhoneBridge-v1-patches.zip', [Convert]::FromBase64String($v1b64))
+          Expand-Archive -Path PhoneBridge-v1-patches.zip -DestinationPath PhoneBridge-v1-patches -Force
+
+          Copy-Item phonebridge-patches/Receiver.cpp PhoneBridge/windows/native/Receiver.cpp -Force
+          Copy-Item phonebridge-patches/JpegDecoder.cpp PhoneBridge/windows/native/JpegDecoder.cpp -Force
+          Copy-Item phonebridge-patches/JpegDecoder.h PhoneBridge/windows/native/JpegDecoder.h -Force
+          Copy-Item phonebridge-patches/DecoderSelfTest.cpp PhoneBridge/windows/native/DecoderSelfTest.cpp -Force
+          Copy-Item phonebridge-patches/CMakeLists.txt PhoneBridge/windows/native/CMakeLists.txt -Force
+          Copy-Item phonebridge-patches/SharedBus.cpp PhoneBridge/windows/native/SharedBus.cpp -Force
+          Copy-Item phonebridge-patches/SharedBus.h PhoneBridge/windows/native/SharedBus.h -Force
+          python phonebridge-patches/add_raw_jpeg_diagnostic.py PhoneBridge/windows/native/Receiver.cpp
+          python phonebridge-patches/fix_preview_direct2d.py PhoneBridge/windows/native/Receiver.cpp
+          python PhoneBridge-v1-patches/upgrade_v1_windows.py PhoneBridge/windows/native/Receiver.cpp
+          python phonebridge-v11/harden_windows.py PhoneBridge/windows/native/Receiver.cpp
+          python phonebridge-v12/upgrade_v12_windows.py PhoneBridge/windows/native/Receiver.cpp
+          Copy-Item phonebridge-v15/VBCableBridge.h PhoneBridge/windows/native/VBCableBridge.h -Force
+          Copy-Item phonebridge-v17/VBCableBridge.cpp PhoneBridge/windows/native/VBCableBridge.cpp -Force
+          python phonebridge-v14/upgrade_v14_windows.py PhoneBridge/windows/native/Receiver.cpp
+          python phonebridge-v15/upgrade_v15_windows.py PhoneBridge/windows/native/Receiver.cpp
+          python phonebridge-v17/upgrade_v17_windows.py PhoneBridge/windows/native/Receiver.cpp
+
+      - name: Apply v1.8 UI and persistence only
+        shell: pwsh
+        run: |
+          Get-Content phonebridge-v18/patch-part-00.py,phonebridge-v18/patch-part-01.py,phonebridge-v18/patch-part-02.py,phonebridge-v18/patch-part-03.py | Set-Content phonebridge-v18/upgrade_v18_windows.py
+          python phonebridge-v18/upgrade_v18_windows.py PhoneBridge/windows/native/Receiver.cpp
+
+          $src=Get-Content PhoneBridge/windows/native/Receiver.cpp -Raw
+          foreach($marker in @(
+            'PhoneBridge v1.8 - Camera & Microphone',
+            'Remember buttons',
+            'Run with: Last used buttons',
+            'ui-settings.ini',
+            'applyVbCableState',
+            'D2D1CreateFactory',
+            'DXGI_FORMAT_B8G8R8A8_UNORM',
+            'Resilient no-echo browser mic ON'
+          )){ if(-not $src.Contains($marker)){ throw "v1.8 receiver marker missing: $marker" } }
+          if($src.Contains('Stereo Mix') -or $src.Contains('StereoMixBridge')){ throw 'Regression: Stereo Mix feedback path returned' }
+          if($src.Contains('StretchDIBits(')){ throw 'Regression: legacy GDI color renderer returned' }
+
+          $audio=Get-Content PhoneBridge/windows/native/VBCableBridge.cpp -Raw
+          foreach($marker in @('kPrefillSamples = kRate * 180','ONE lock per WASAPI block','kRebufferFrames','+12 dB nominal voice gain','Gentler 2:1 compression')){ if(-not $audio.Contains($marker)){ throw "Protected v1.7 audio marker missing: $marker" } }
+          if($audio.Contains('takeSample(')){ throw 'Regression: per-sample mutex audio path returned' }
+
+      - name: Build static libjpeg-turbo 3.2.0
+        shell: pwsh
+        run: |
+          git clone --branch 3.2.0 --depth 1 https://github.com/libjpeg-turbo/libjpeg-turbo.git libjpeg-turbo
+          $prefix = Join-Path $PWD 'libjpeg-install'
+          cmake -S libjpeg-turbo -B libjpeg-build -A x64 -DENABLE_SHARED=OFF -DENABLE_STATIC=ON -DWITH_TURBOJPEG=ON -DWITH_TOOLS=OFF -DWITH_TESTS=OFF -DWITH_SIMD=OFF -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded "-DCMAKE_INSTALL_PREFIX=$prefix"
+          cmake --build libjpeg-build --config Release --target install
+
+      - name: Build PhoneBridge v1.8 receiver
+        shell: pwsh
+        run: |
+          $cmake=Get-Content PhoneBridge/windows/native/CMakeLists.txt -Raw
+          $cmake=$cmake.Replace('add_executable(PhoneBridgeReceiver WIN32 Receiver.cpp JpegDecoder.cpp SharedBus.cpp)','add_executable(PhoneBridgeReceiver WIN32 Receiver.cpp JpegDecoder.cpp SharedBus.cpp VBCableBridge.cpp)')
+          $cmake=$cmake.Replace(
+            'target_link_libraries(PhoneBridgeReceiver PRIVATE ws2_32 ole32 shlwapi comctl32 libjpeg-turbo::turbojpeg-static)',
+            'target_link_libraries(PhoneBridgeReceiver PRIVATE ws2_32 ole32 shlwapi comctl32 shell32 mfplat mfreadwrite mfuuid uuid propsys libjpeg-turbo::turbojpeg-static)'
+          )
+          Set-Content PhoneBridge/windows/native/CMakeLists.txt $cmake
+          $prefix=Join-Path $PWD 'libjpeg-install'
+          cmake -S PhoneBridge/windows/native -B PhoneBridge/windows/build-v18 -A x64 "-DCMAKE_PREFIX_PATH=$prefix"
+          cmake --build PhoneBridge/windows/build-v18 --config Release
+          PhoneBridge/windows/build-v18/Release/PhoneBridgeDecoderSelfTest.exe
+
+      - name: Download proven v1.7 camera components
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: Mohan238-web/my-life-manager
+          run-id: 31768876341
+          name: PhoneBridge-v1.7-Package
+          path: validated/v17
+
+      - name: Download matched v1.8 Android APK
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: Mohan238-web/my-life-manager
+          run-id: 31931292003
+          name: PhoneBridge-Android-v1.8-UI
+          path: validated/android
+
+      - name: Prepare v1.8 stable installer payload
+        shell: pwsh
+        run: |
+          $payload='phonebridge-installer/payload-v18-stable'
+          New-Item -ItemType Directory -Force "$payload/Camera","$payload/Android" | Out-Null
+          Copy-Item PhoneBridge/windows/build-v18/Release/PhoneBridgeReceiver.exe "$payload/PhoneBridge.exe"
+
+          $setup=Get-ChildItem validated/v17 -Recurse -Filter 'PhoneBridgeVirtualCameraSetup.exe' | Select-Object -First 1
+          $dll=Get-ChildItem validated/v17 -Recurse -Filter 'VirtualCameraMediaSource.dll' | Select-Object -First 1
+          $probe=Get-ChildItem validated/v17 -Recurse -Filter 'PhoneBridgeCameraProbe.exe' | Select-Object -First 1
+          $apk=Get-ChildItem validated/android -Recurse -Filter 'PhoneBridge-v1.8-UI.apk' | Select-Object -First 1
+          foreach($f in @($setup,$dll,$probe,$apk)){ if(-not $f){ throw 'Required stable payload file is missing' } }
+          Copy-Item $setup.FullName "$payload/Camera/PhoneBridgeVirtualCameraSetup.exe"
+          Copy-Item $dll.FullName "$payload/Camera/VirtualCameraMediaSource.dll"
+          Copy-Item $probe.FullName "$payload/Camera/PhoneBridgeCameraProbe.exe"
+          Copy-Item $apk.FullName "$payload/Android/PhoneBridge-v1.8.apk"
+
+          @'
+          PhoneBridge v1.8 Stable
+
+          The proven v1.7 camera/audio/transport core is unchanged. v1.8 adds Windows UI and persistent settings only.
+
+          Windows additions:
+          - Clean camera view with a compact right-side control area.
+          - Dedicated Settings view.
+          - Remember Buttons persists camera, microphone, VB-CABLE, torch, zoom, resolution, FPS and JPEG quality.
+          - Run With presets: Last used, Camera + microphone, Camera only, Microphone only, Connected only.
+          - Browser mic via VB-CABLE can restore automatically at launch when Remember Buttons is enabled.
+          - Editable persistent 6-digit pairing PIN.
+          - PC address is auto-detected from Windows and can be copied from Settings.
+          - Existing Start with Windows, recording, snapshot, camera repair/test, Direct2D preview and resilient v1.7 audio remain unchanged.
+
+          Notes:
+          - Windows owns the actual PC IP address, so PhoneBridge displays/copies it rather than pretending to change the network adapter address.
+          - VB-CABLE remains a separate third-party driver and is not bundled.
+          - Existing PhoneBridge settings under LocalAppData are retained during upgrades.
+          '@ | Set-Content "$payload/README-New-PC.txt"
+
+          $files=Get-ChildItem $payload -Recurse -File
+          ($files | ForEach-Object { "$( (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower() )  $($_.FullName.Substring((Resolve-Path $payload).Path.Length+1))" }) | Set-Content "$payload/SHA256.txt"
+
+      - name: Compile v1.8 single Windows installer
+        shell: pwsh
+        run: |
+          $iscc="${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if(-not (Test-Path $iscc)){ choco install innosetup -y --no-progress }
+          if(-not (Test-Path $iscc)){ throw 'Inno Setup compiler not found' }
+          & $iscc phonebridge-installer/PhoneBridge-v18-stable.iss
+          if($LASTEXITCODE -ne 0){ throw 'Inno Setup compilation failed' }
+
+      - name: Prepare release files
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release-v18 | Out-Null
+          Copy-Item PhoneBridge/windows/build-v18/Release/PhoneBridgeReceiver.exe release-v18/PhoneBridge-v1.8.exe
+          Copy-Item phonebridge-installer/out-v18-stable/PhoneBridge-v1.8-Stable-Setup.exe release-v18/
+          Copy-Item phonebridge-installer/payload-v18-stable/Android/PhoneBridge-v1.8.apk release-v18/PhoneBridge-v1.8-Android.apk
+          Copy-Item phonebridge-installer/payload-v18-stable/README-New-PC.txt release-v18/
+          $files=Get-ChildItem release-v18 -File
+          ($files | ForEach-Object { "$( (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower() )  $($_.Name)" }) | Set-Content release-v18/SHA256.txt
+          Get-Content release-v18/SHA256.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhoneBridge-v1.8-Stable-PC-and-Android
+          path: release-v18/*
+          if-no-files-found: error
