@@ -1,0 +1,45 @@
+name: Export PhoneBridge v1.6 Android Source
+
+on:
+  push:
+    branches: [phonebridge-build]
+    paths:
+      - '.github/workflows/export-phonebridge-v16-android-source.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rebuild exact v1.6 Android source
+        run: |
+          cat phonebridge-source/p1-0.b64 phonebridge-source/p1-1.b64 phonebridge-source/p1-2.b64 phonebridge-source/p1-3.b64 phonebridge-source/part2.b64 phonebridge-source/p3-0.b64 phonebridge-source/p3-1.b64 phonebridge-source/p3-2.b64 phonebridge-source/p3-3.b64 phonebridge-source/part4.b64 | base64 -d > PhoneBridge-source.rebuilt.zip
+          unzip -q PhoneBridge-source.rebuilt.zip
+          mkdir -p PhoneBridge-v1-patches
+          cat phonebridge-v1/v1patch-00.b64 phonebridge-v1/v1patch-01.b64 phonebridge-v1/v1patch-02.b64 | base64 -d > PhoneBridge-v1-patches.zip
+          unzip -q PhoneBridge-v1-patches.zip -d PhoneBridge-v1-patches
+          cp phonebridge-patches/StreamService.java PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          cp phonebridge-patches/YuvTools.java PhoneBridge/android/app/src/main/java/com/phonebridge/app/YuvTools.java
+          python phonebridge-patches/fix_camera_main_thread.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          python phonebridge-patches/fix_av_quality.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          python phonebridge-patches/fix_color_rotation_v2.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          python phonebridge-patches/fix_color_depth_resolution_v3.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          python phonebridge-patches/fix_standard_nv21_v4.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          cp PhoneBridge-v1-patches/MainActivityV1.java PhoneBridge/android/app/src/main/java/com/phonebridge/app/MainActivity.java
+          python PhoneBridge-v1-patches/upgrade_v1_android.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          python phonebridge-v12/upgrade_v12_android.py PhoneBridge
+          python phonebridge-v16/upgrade_v16_android.py PhoneBridge
+          mkdir -p exported
+          cp PhoneBridge/android/app/src/main/java/com/phonebridge/app/MainActivity.java exported/
+          cp PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java exported/
+          cp PhoneBridge/android/app/src/main/AndroidManifest.xml exported/
+          cp PhoneBridge/android/app/build.gradle.kts exported/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhoneBridge-v1.6-Generated-Android-Source
+          path: exported/*
