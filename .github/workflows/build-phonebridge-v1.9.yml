@@ -1,0 +1,267 @@
+name: Build PhoneBridge v1.9 QR Pairing and Noise Clean
+
+on:
+  push:
+    branches: [phonebridge-build]
+    paths:
+      - '.github/workflows/build-phonebridge-v1.9.yml'
+      - 'phonebridge-v19/**'
+      - 'phonebridge-installer/PhoneBridge-v19-stable.iss'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  android:
+    name: Android v1.9 one-time QR pairing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rebuild exact proven v1.8 Android baseline
+        run: |
+          cat phonebridge-source/p1-0.b64 phonebridge-source/p1-1.b64 phonebridge-source/p1-2.b64 phonebridge-source/p1-3.b64 phonebridge-source/part2.b64 phonebridge-source/p3-0.b64 phonebridge-source/p3-1.b64 phonebridge-source/p3-2.b64 phonebridge-source/p3-3.b64 phonebridge-source/part4.b64 | base64 -d > PhoneBridge-source.rebuilt.zip
+          unzip -q PhoneBridge-source.rebuilt.zip
+          mkdir -p PhoneBridge-v1-patches
+          cat phonebridge-v1/v1patch-00.b64 phonebridge-v1/v1patch-01.b64 phonebridge-v1/v1patch-02.b64 | base64 -d > PhoneBridge-v1-patches.zip
+          unzip -q PhoneBridge-v1-patches.zip -d PhoneBridge-v1-patches
+          cp phonebridge-patches/StreamService.java PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          cp phonebridge-patches/YuvTools.java PhoneBridge/android/app/src/main/java/com/phonebridge/app/YuvTools.java
+          python phonebridge-patches/fix_camera_main_thread.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          python phonebridge-patches/fix_av_quality.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          python phonebridge-patches/fix_color_rotation_v2.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          python phonebridge-patches/fix_color_depth_resolution_v3.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          python phonebridge-patches/fix_standard_nv21_v4.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          cp PhoneBridge-v1-patches/MainActivityV1.java PhoneBridge/android/app/src/main/java/com/phonebridge/app/MainActivity.java
+          python PhoneBridge-v1-patches/upgrade_v1_android.py PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          python phonebridge-v12/upgrade_v12_android.py PhoneBridge
+          python phonebridge-v16/upgrade_v16_android.py PhoneBridge
+          cp phonebridge-v18/MainActivityV18.java PhoneBridge/android/app/src/main/java/com/phonebridge/app/MainActivity.java
+
+      - name: Apply v1.9 QR pairing extension only
+        run: |
+          python phonebridge-v19/patch_v19_android.py PhoneBridge
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('PhoneBridge/android/app/src/main/AndroidManifest.xml')
+          s=p.read_text()
+          if 'android.permission.WAKE_LOCK' not in s:
+              s=s.replace('<uses-permission android:name="android.permission.INTERNET" />','<uses-permission android:name="android.permission.WAKE_LOCK" />\n    <uses-permission android:name="android.permission.INTERNET" />')
+          s=s.replace('android:foregroundServiceType="camera|microphone" />','android:foregroundServiceType="camera|microphone"\n            android:stopWithTask="false" />')
+          p.write_text(s)
+          g=Path('PhoneBridge/android/app/build.gradle.kts')
+          t=g.read_text().replace('compileSdk = 37','compileSdk = 36').replace('targetSdk = 37','targetSdk = 36')
+          t=t.replace('versionCode = 1','versionCode = 19').replace('versionName = "1.0.0"','versionName = "1.9.0"')
+          g.write_text(t)
+          PY
+
+      - name: Verify Android protected camera/audio behavior and QR extension
+        run: |
+          S=PhoneBridge/android/app/src/main/java/com/phonebridge/app/StreamService.java
+          M=PhoneBridge/android/app/src/main/java/com/phonebridge/app/MainActivity.java
+          grep -q 'OUTPUT_IMAGE_FORMAT_NV21' "$S"
+          grep -q 'fromCameraXStandardNv21' "$S"
+          grep -q 'OrientationEventListener' "$S"
+          grep -q 'START_STICKY' "$S"
+          grep -q 'provider.bindToLifecycle(this, selector, analysis)' "$S"
+          grep -q 'PhoneBridge v1.6 preview/share match' "$S"
+          grep -q 'setResolutionSelector(resolutionSelector)' "$S"
+          grep -q 'UseCaseGroup.Builder' "$S"
+          grep -q 'group.setViewPort(viewPort)' "$S"
+          grep -q 'PreviewView.ScaleType.FIT_CENTER' "$M"
+          grep -q 'Remember Buttons' "$M"
+          grep -q 'Run With' "$M"
+          grep -q 'Scan pairing QR' "$M"
+          grep -q 'ScanContract' "$M"
+          grep -q 'oneTimePairToken' "$S"
+          grep -q 'qrTrusted' "$S"
+          grep -q 'trusted_pin' "$S"
+          grep -q 'setUiForeground(false)' "$M"
+          grep -q 'zxing-android-embedded:4.3.0' PhoneBridge/android/app/build.gradle.kts
+          if grep -q 'OUTPUT_IMAGE_FORMAT_RGBA_8888' "$S"; then echo 'Regression: bad RGBA path returned' >&2; exit 1; fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - name: Install Android SDK
+        run: sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+      - name: Build PhoneBridge v1.9 APK
+        run: gradle -p PhoneBridge/android --stacktrace assembleDebug
+      - name: Package Android APK
+        run: |
+          mkdir -p release-android
+          cp PhoneBridge/android/app/build/outputs/apk/debug/app-debug.apk release-android/PhoneBridge-v1.9.apk
+          sha256sum release-android/PhoneBridge-v1.9.apk > release-android/SHA256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhoneBridge-Android-v1.9
+          path: release-android/*
+          if-no-files-found: error
+
+  windows:
+    name: Windows v1.9 QR pairing and adaptive noise clean
+    needs: android
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rebuild exact proven v1.8 Windows baseline
+        shell: pwsh
+        run: |
+          $names = 'p1-0','p1-1','p1-2','p1-3','part2','p3-0','p3-1','p3-2','p3-3','part4'
+          $b64 = ($names | ForEach-Object { Get-Content "phonebridge-source/$_.b64" -Raw }) -join ''
+          [IO.File]::WriteAllBytes('PhoneBridge-source.rebuilt.zip', [Convert]::FromBase64String($b64))
+          Expand-Archive -Path PhoneBridge-source.rebuilt.zip -DestinationPath . -Force
+          $v1Names = 'v1patch-00','v1patch-01','v1patch-02'
+          $v1b64 = ($v1Names | ForEach-Object { Get-Content "phonebridge-v1/$_.b64" -Raw }) -join ''
+          [IO.File]::WriteAllBytes('PhoneBridge-v1-patches.zip', [Convert]::FromBase64String($v1b64))
+          Expand-Archive -Path PhoneBridge-v1-patches.zip -DestinationPath PhoneBridge-v1-patches -Force
+          Copy-Item phonebridge-patches/Receiver.cpp PhoneBridge/windows/native/Receiver.cpp -Force
+          Copy-Item phonebridge-patches/JpegDecoder.cpp PhoneBridge/windows/native/JpegDecoder.cpp -Force
+          Copy-Item phonebridge-patches/JpegDecoder.h PhoneBridge/windows/native/JpegDecoder.h -Force
+          Copy-Item phonebridge-patches/DecoderSelfTest.cpp PhoneBridge/windows/native/DecoderSelfTest.cpp -Force
+          Copy-Item phonebridge-patches/CMakeLists.txt PhoneBridge/windows/native/CMakeLists.txt -Force
+          Copy-Item phonebridge-patches/SharedBus.cpp PhoneBridge/windows/native/SharedBus.cpp -Force
+          Copy-Item phonebridge-patches/SharedBus.h PhoneBridge/windows/native/SharedBus.h -Force
+          python phonebridge-patches/add_raw_jpeg_diagnostic.py PhoneBridge/windows/native/Receiver.cpp
+          python phonebridge-patches/fix_preview_direct2d.py PhoneBridge/windows/native/Receiver.cpp
+          python PhoneBridge-v1-patches/upgrade_v1_windows.py PhoneBridge/windows/native/Receiver.cpp
+          python phonebridge-v11/harden_windows.py PhoneBridge/windows/native/Receiver.cpp
+          python phonebridge-v12/upgrade_v12_windows.py PhoneBridge/windows/native/Receiver.cpp
+          Copy-Item phonebridge-v15/VBCableBridge.h PhoneBridge/windows/native/VBCableBridge.h -Force
+          Copy-Item phonebridge-v17/VBCableBridge.cpp PhoneBridge/windows/native/VBCableBridge.cpp -Force
+          python phonebridge-v14/upgrade_v14_windows.py PhoneBridge/windows/native/Receiver.cpp
+          python phonebridge-v15/upgrade_v15_windows.py PhoneBridge/windows/native/Receiver.cpp
+          python phonebridge-v17/upgrade_v17_windows.py PhoneBridge/windows/native/Receiver.cpp
+          Get-Content phonebridge-v18/patch-part-00.py,phonebridge-v18/patch-part-01.py,phonebridge-v18/patch-part-02.py,phonebridge-v18/patch-part-03.py | Set-Content phonebridge-v18/upgrade_v18_windows.py
+          python phonebridge-v18/upgrade_v18_windows.py PhoneBridge/windows/native/Receiver.cpp
+
+      - name: Add QR generator and adaptive Noise Clean
+        shell: pwsh
+        run: |
+          Copy-Item phonebridge-v19/NoiseCleaner.h PhoneBridge/windows/native/NoiseCleaner.h -Force
+          Copy-Item phonebridge-v19/NoiseCleaner.cpp PhoneBridge/windows/native/NoiseCleaner.cpp -Force
+          git clone --depth 1 https://github.com/nayuki/QR-Code-generator.git qrcode-generator
+          Copy-Item qrcode-generator/cpp/qrcodegen.hpp PhoneBridge/windows/native/qrcodegen.hpp -Force
+          Copy-Item qrcode-generator/cpp/qrcodegen.cpp PhoneBridge/windows/native/qrcodegen.cpp -Force
+          python phonebridge-v19/patch_v19_windows.py PhoneBridge/windows/native/Receiver.cpp
+
+          $src=Get-Content PhoneBridge/windows/native/Receiver.cpp -Raw
+          foreach($marker in @('PhoneBridge v1.9 - Camera & Microphone','Show pairing QR','consumeQrToken','qrTrusted','Noise Clean: Natural','NoiseCleaner g_noiseCleaner','writeAudio(voiceSamples,count)','D2D1CreateFactory','Resilient no-echo browser mic ON')){ if(-not $src.Contains($marker)){ throw "v1.9 receiver marker missing: $marker" } }
+          $audio=Get-Content PhoneBridge/windows/native/VBCableBridge.cpp -Raw
+          foreach($marker in @('kPrefillSamples = kRate * 180','ONE lock per WASAPI block','kRebufferFrames','+12 dB nominal voice gain','Gentler 2:1 compression')){ if(-not $audio.Contains($marker)){ throw "Protected v1.7 audio marker missing: $marker" } }
+          if($audio.Contains('takeSample(')){ throw 'Regression: per-sample mutex audio path returned' }
+          if($src.Contains('Stereo Mix') -or $src.Contains('StereoMixBridge')){ throw 'Regression: Stereo Mix feedback path returned' }
+          if($src.Contains('StretchDIBits(')){ throw 'Regression: legacy GDI color renderer returned' }
+
+      - name: Build static libjpeg-turbo 3.2.0
+        shell: pwsh
+        run: |
+          git clone --branch 3.2.0 --depth 1 https://github.com/libjpeg-turbo/libjpeg-turbo.git libjpeg-turbo
+          $prefix = Join-Path $PWD 'libjpeg-install'
+          cmake -S libjpeg-turbo -B libjpeg-build -A x64 -DENABLE_SHARED=OFF -DENABLE_STATIC=ON -DWITH_TURBOJPEG=ON -DWITH_TOOLS=OFF -DWITH_TESTS=OFF -DWITH_SIMD=OFF -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded "-DCMAKE_INSTALL_PREFIX=$prefix"
+          cmake --build libjpeg-build --config Release --target install
+
+      - name: Build PhoneBridge v1.9 receiver
+        shell: pwsh
+        run: |
+          $cmake=Get-Content PhoneBridge/windows/native/CMakeLists.txt -Raw
+          $cmake=$cmake.Replace('add_executable(PhoneBridgeReceiver WIN32 Receiver.cpp JpegDecoder.cpp SharedBus.cpp)','add_executable(PhoneBridgeReceiver WIN32 Receiver.cpp JpegDecoder.cpp SharedBus.cpp VBCableBridge.cpp NoiseCleaner.cpp qrcodegen.cpp)')
+          $cmake=$cmake.Replace('target_link_libraries(PhoneBridgeReceiver PRIVATE ws2_32 ole32 shlwapi comctl32 libjpeg-turbo::turbojpeg-static)','target_link_libraries(PhoneBridgeReceiver PRIVATE ws2_32 ole32 shlwapi comctl32 shell32 mfplat mfreadwrite mfuuid uuid propsys libjpeg-turbo::turbojpeg-static)')
+          Set-Content PhoneBridge/windows/native/CMakeLists.txt $cmake
+          $prefix=Join-Path $PWD 'libjpeg-install'
+          cmake -S PhoneBridge/windows/native -B PhoneBridge/windows/build-v19 -A x64 "-DCMAKE_PREFIX_PATH=$prefix"
+          cmake --build PhoneBridge/windows/build-v19 --config Release
+          PhoneBridge/windows/build-v19/Release/PhoneBridgeDecoderSelfTest.exe
+
+      - name: Download proven v1.7 virtual camera components
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: Mohan238-web/my-life-manager
+          run-id: 31768876341
+          name: PhoneBridge-v1.7-Package
+          path: validated/v17
+
+      - name: Download matched v1.9 Android APK
+        uses: actions/download-artifact@v4
+        with:
+          name: PhoneBridge-Android-v1.9
+          path: validated/android
+
+      - name: Prepare v1.9 stable installer payload
+        shell: pwsh
+        run: |
+          $payload='phonebridge-installer/payload-v19-stable'
+          New-Item -ItemType Directory -Force "$payload/Camera","$payload/Android" | Out-Null
+          Copy-Item PhoneBridge/windows/build-v19/Release/PhoneBridgeReceiver.exe "$payload/PhoneBridge.exe"
+          $setup=Get-ChildItem validated/v17 -Recurse -Filter 'PhoneBridgeVirtualCameraSetup.exe' | Select-Object -First 1
+          $dll=Get-ChildItem validated/v17 -Recurse -Filter 'VirtualCameraMediaSource.dll' | Select-Object -First 1
+          $probe=Get-ChildItem validated/v17 -Recurse -Filter 'PhoneBridgeCameraProbe.exe' | Select-Object -First 1
+          $apk=Get-ChildItem validated/android -Recurse -Filter 'PhoneBridge-v1.9.apk' | Select-Object -First 1
+          foreach($f in @($setup,$dll,$probe,$apk)){ if(-not $f){ throw 'Required v1.9 payload file is missing' } }
+          Copy-Item $setup.FullName "$payload/Camera/PhoneBridgeVirtualCameraSetup.exe"
+          Copy-Item $dll.FullName "$payload/Camera/VirtualCameraMediaSource.dll"
+          Copy-Item $probe.FullName "$payload/Camera/PhoneBridgeCameraProbe.exe"
+          Copy-Item $apk.FullName "$payload/Android/PhoneBridge-v1.9.apk"
+          @'
+          PhoneBridge v1.9 Stable - QR Pairing + Adaptive Noise Clean
+
+          Existing working v1.7/v1.8 camera, VB-CABLE jitter buffer, Direct2D preview, recording, background Android service, Remember Buttons and Run With behavior remain in place.
+
+          QR PAIRING
+          - In PC Settings choose Show pairing QR.
+          - In Android Settings choose Scan pairing QR.
+          - QR contains the PC address and a random one-time token, not the permanent PIN.
+          - Token expires after 2 minutes and is consumed after one successful pairing.
+          - After QR pairing, the normal trusted PIN is sent over the connected PhoneBridge socket and saved by the APK for future reconnects.
+          - Manual six-digit PIN pairing remains fully supported.
+
+          NOISE CLEAN
+          - PC Settings offers OFF / Natural / Strong.
+          - OFF passes the original PhoneBridge microphone samples unchanged.
+          - Natural is recommended for fans, AC and steady room noise.
+          - Strong applies deeper suppression for noisier rooms.
+          - The PC learns background noise only during detected non-speech gaps and adapts slowly afterward.
+          - Voice decisions include hangover protection so quiet syllables and word endings are not chopped.
+          - Cleaned audio feeds VB-CABLE, the PhoneBridge audio bus and MP4 recording in real time.
+          - Existing v1.7 +12 dB gain/compressor/limiter remains after Noise Clean in the VB-CABLE path.
+          '@ | Set-Content "$payload/README-New-PC.txt"
+          $files=Get-ChildItem $payload -Recurse -File
+          ($files | ForEach-Object { "$( (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower() )  $($_.FullName.Substring((Resolve-Path $payload).Path.Length+1))" }) | Set-Content "$payload/SHA256.txt"
+
+      - name: Compile v1.9 single Windows installer
+        shell: pwsh
+        run: |
+          $iscc="${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if(-not (Test-Path $iscc)){ choco install innosetup -y --no-progress }
+          if(-not (Test-Path $iscc)){ throw 'Inno Setup compiler not found' }
+          & $iscc phonebridge-installer/PhoneBridge-v19-stable.iss
+          if($LASTEXITCODE -ne 0){ throw 'Inno Setup compilation failed' }
+
+      - name: Prepare release files
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release-v19 | Out-Null
+          Copy-Item PhoneBridge/windows/build-v19/Release/PhoneBridgeReceiver.exe release-v19/PhoneBridge-v1.9.exe
+          Copy-Item phonebridge-installer/out-v19-stable/PhoneBridge-v1.9-Stable-Setup.exe release-v19/
+          Copy-Item phonebridge-installer/payload-v19-stable/Android/PhoneBridge-v1.9.apk release-v19/PhoneBridge-v1.9-Android.apk
+          Copy-Item phonebridge-installer/payload-v19-stable/README-New-PC.txt release-v19/
+          $files=Get-ChildItem release-v19 -File
+          ($files | ForEach-Object { "$( (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower() )  $($_.Name)" }) | Set-Content release-v19/SHA256.txt
+          Get-Content release-v19/SHA256.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhoneBridge-v1.9-Stable-QR-Noise
+          path: release-v19/*
+          if-no-files-found: error
