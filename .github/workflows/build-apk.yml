@@ -1,8 +1,6 @@
 name: Build Android APK
 on:
   workflow_dispatch:
-  push:
-    branches: [ main ]
 
 jobs:
   build:
@@ -16,12 +14,14 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Reassemble offline workspace
+      - name: Reassemble v9.13.98 offline workspace
         run: |
           mkdir -p app/src/main/assets
-          cat app/src/main/assets_parts/index.part-* > app/src/main/assets/index.html
+          cat app/src/main/assets_parts/index.v91398.gz.b64.part-* > /tmp/index.html.gz.b64
+          base64 -d /tmp/index.html.gz.b64 > /tmp/index.html.gz
+          gzip -dc /tmp/index.html.gz > app/src/main/assets/index.html
       - run: gradle assembleDebug
       - uses: actions/upload-artifact@v4
         with:
-          name: My-Life-Manager-APK
+          name: My-Life-Manager-v9.13.98-APK
           path: app/build/outputs/apk/debug/app-debug.apk
