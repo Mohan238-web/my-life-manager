@@ -1,5 +1,5 @@
 # My Life Manager Android
 
-Android WebView package for My Life Manager v9.13.103 with direct-first Android reminder scheduling, fallback acknowledgement, exact-alarm permission handling and lock-screen delivery.
+Android WebView package for My Life Manager v9.13.104 with direct-first exact reminder scheduling, notification actions, exact task/note opening, and reliable post-save editor closing.
 
-The GitHub Actions workflow builds `My-Life-Manager-v9.13.103.apk` without an emulator.
+The GitHub Actions workflow builds `My-Life-Manager-v9.13.104.apk` without an emulator.

@@ -31,9 +31,12 @@ public class MainActivity extends Activity {
     private WebView web;
     private ValueCallback<Uri[]> fileCallback;
     private String pendingReminderJson;
+    private String pendingTargetId;
+    private String pendingTargetSource;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
+        captureReminderTarget(getIntent());
         ReminderReceiver.ensureChannel(this);
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             new Handler(Looper.getMainLooper()).postDelayed(
@@ -59,6 +62,10 @@ public class MainActivity extends Activity {
                 try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))); return true; }
                 catch (Exception ignored) { return false; }
             }
+            @Override public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                deliverReminderTarget();
+            }
         });
         web.setWebChromeClient(new WebChromeClient() {
             @Override public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
@@ -72,6 +79,32 @@ public class MainActivity extends Activity {
             }
         });
         web.loadUrl("file:///android_asset/index.html");
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        captureReminderTarget(intent);
+        deliverReminderTarget();
+    }
+
+    private void captureReminderTarget(Intent intent) {
+        if (intent == null) return;
+        String id = intent.getStringExtra("reminderId");
+        if (id == null || id.isEmpty()) return;
+        pendingTargetId = id;
+        pendingTargetSource = intent.getStringExtra("source");
+    }
+
+    private void deliverReminderTarget() {
+        if (web == null || pendingTargetId == null) return;
+        final String id = pendingTargetId;
+        final String source = pendingTargetSource == null ? "global" : pendingTargetSource;
+        pendingTargetId = null;
+        pendingTargetSource = null;
+        String script = "window.MLMOpenReminderTarget&&window.MLMOpenReminderTarget({id:" +
+            JSONObject.quote(id) + ",source:" + JSONObject.quote(source) + "});";
+        web.postDelayed(() -> web.evaluateJavascript(script, null), 350);
     }
 
     @Override protected void onActivityResult(int request, int result, Intent data) {
@@ -124,11 +157,18 @@ public class MainActivity extends Activity {
             i.putExtra("title", p.optString("title", "My Life Manager"));
             i.putExtra("body", p.optString("body", "Reminder"));
             i.putExtra("requestCode", code);
+            i.putExtra("reminderId", id);
+            i.putExtra("source", p.optString("source", "global"));
+            i.putExtra("at", at);
             PendingIntent pi = PendingIntent.getBroadcast(MainActivity.this, code, i, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
             AlarmManager alarm = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
             Intent show = new Intent(MainActivity.this, MainActivity.class);
+            show.putExtra("reminderId", id);
+            show.putExtra("source", p.optString("source", "global"));
             PendingIntent showIntent = PendingIntent.getActivity(MainActivity.this, code, show, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
             alarm.setAlarmClock(new AlarmManager.AlarmClockInfo(at, showIntent), pi);
+            if (p.optBoolean("confirm", false)) runOnUiThread(() ->
+                Toast.makeText(MainActivity.this, "Set alarm successfully", Toast.LENGTH_SHORT).show());
             return "scheduled";
         } catch (Exception e) { return "error:" + e.getMessage(); }
     }
