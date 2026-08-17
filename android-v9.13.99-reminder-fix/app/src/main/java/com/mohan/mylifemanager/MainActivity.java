@@ -20,6 +20,7 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.Toast;
 import java.util.Locale;
 import org.json.JSONObject;
 
@@ -29,6 +30,7 @@ public class MainActivity extends Activity {
     private static final int CAMERA_PERMISSION = 43;
     private WebView web;
     private ValueCallback<Uri[]> fileCallback;
+    private String pendingReminderJson;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -80,6 +82,57 @@ public class MainActivity extends Activity {
         }
     }
 
+    @Override protected void onResume() {
+        super.onResume();
+        if (pendingReminderJson == null || !canScheduleExactAlarms()) return;
+        final String pending = pendingReminderJson;
+        pendingReminderJson = null;
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            String result = scheduleReminder(pending);
+            Toast.makeText(MainActivity.this,
+                "scheduled".equals(result) ? "Reminder scheduled successfully" : "Reminder scheduling failed: " + result,
+                Toast.LENGTH_LONG).show();
+        }, 350);
+    }
+
+    private boolean canScheduleExactAlarms() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true;
+        AlarmManager alarm = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+        return alarm != null && alarm.canScheduleExactAlarms();
+    }
+
+    private void openExactAlarmSettings() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return;
+        try {
+            Intent intent = new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                Uri.parse("package:" + getPackageName()));
+            startActivity(intent);
+        } catch (Exception ignored) {
+            startActivity(new Intent(Settings.ACTION_SETTINGS));
+        }
+    }
+
+    private String scheduleReminder(String json) {
+        try {
+            if (!canScheduleExactAlarms()) return "error:exact-alarm-permission-required";
+            JSONObject p = new JSONObject(json);
+            String id = p.optString("id", "reminder");
+            int code = id.hashCode() & 0x7fffffff;
+            long at = p.optLong("at", 0L);
+            if (at <= System.currentTimeMillis()) return "error:reminder-time-is-in-the-past";
+            Intent i = new Intent(MainActivity.this, ReminderReceiver.class);
+            i.putExtra("title", p.optString("title", "My Life Manager"));
+            i.putExtra("body", p.optString("body", "Reminder"));
+            i.putExtra("requestCode", code);
+            PendingIntent pi = PendingIntent.getBroadcast(MainActivity.this, code, i, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            AlarmManager alarm = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+            Intent show = new Intent(MainActivity.this, MainActivity.class);
+            PendingIntent showIntent = PendingIntent.getActivity(MainActivity.this, code, show, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            alarm.setAlarmClock(new AlarmManager.AlarmClockInfo(at, showIntent), pi);
+            return "scheduled";
+        } catch (Exception e) { return "error:" + e.getMessage(); }
+    }
+
     @Override public void onBackPressed() {
         web.evaluateJavascript("history.back();", null);
     }
@@ -102,24 +155,19 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void requestPermission() {
             if (Build.VERSION.SDK_INT >= 33) runOnUiThread(() -> requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTIFICATION_PERMISSION));
         }
+        @JavascriptInterface public String exactAlarmPermissionStatus() {
+            return canScheduleExactAlarms() ? "granted" : "denied";
+        }
+        @JavascriptInterface public void requestExactAlarmPermission() {
+            runOnUiThread(() -> openExactAlarmSettings());
+        }
         @JavascriptInterface public String schedule(String json) {
-            try {
-                JSONObject p = new JSONObject(json);
-                String id = p.optString("id", "reminder");
-                int code = id.hashCode() & 0x7fffffff;
-                long at = p.optLong("at", System.currentTimeMillis() + 1000);
-                Intent i = new Intent(MainActivity.this, ReminderReceiver.class);
-                i.putExtra("title", p.optString("title", "My Life Manager"));
-                i.putExtra("body", p.optString("body", "Reminder"));
-                i.putExtra("requestCode", code);
-                PendingIntent pi = PendingIntent.getBroadcast(MainActivity.this, code, i, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-                AlarmManager alarm = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
-                long triggerAt = Math.max(at, System.currentTimeMillis() + 500);
-                Intent show = new Intent(MainActivity.this, MainActivity.class);
-                PendingIntent showIntent = PendingIntent.getActivity(MainActivity.this, code, show, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-                alarm.setAlarmClock(new AlarmManager.AlarmClockInfo(triggerAt, showIntent), pi);
-                return "scheduled";
-            } catch (Exception e) { return "error:" + e.getMessage(); }
+            if (!canScheduleExactAlarms()) {
+                pendingReminderJson = json;
+                runOnUiThread(() -> openExactAlarmSettings());
+                return "error:exact-alarm-permission-required";
+            }
+            return scheduleReminder(json);
         }
         @JavascriptInterface public String cancel(String json) {
             try {
