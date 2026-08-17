@@ -8,8 +8,8 @@ android {
         applicationId 'com.mohan.mylifemanager'
         minSdk 24
         targetSdk 35
-        versionCode 913100
-        versionName '9.13.100'
+        versionCode 913101
+        versionName '9.13.101'
     }
 
     buildTypes {
