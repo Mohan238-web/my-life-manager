@@ -43,6 +43,10 @@ public class ReminderReceiver extends BroadcastReceiver {
         open.putExtra("reminderId", reminderId);
         open.putExtra("source", source);
         PendingIntent content = PendingIntent.getActivity(context, notificationId, open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        Intent alert = new Intent(context, ReminderAlertActivity.class);
+        alert.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        if (intent.getExtras() != null) alert.putExtras(intent.getExtras());
+        PendingIntent fullScreen = PendingIntent.getActivity(context, notificationId + 2, alert, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         Intent dismiss = new Intent(context, ReminderReceiver.class);
         dismiss.setAction(ACTION_DISMISS);
         dismiss.putExtra("requestCode", notificationId);
@@ -61,9 +65,12 @@ public class ReminderReceiver extends BroadcastReceiver {
             .setVisibility(android.app.Notification.VISIBILITY_PUBLIC)
             .setAutoCancel(true)
             .setContentIntent(content)
+            .setFullScreenIntent(fullScreen, true)
+            .setOngoing(true)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Dismiss", dismissAction)
             .addAction(android.R.drawable.ic_menu_view, openLabel, content)
             .setPriority(android.app.Notification.PRIORITY_HIGH);
         manager.notify(notificationId, b.build());
+        try { context.startActivity(alert); } catch (Exception ignored) { }
     }
 }
