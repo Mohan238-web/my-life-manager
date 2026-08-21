@@ -29,9 +29,9 @@ jobs:
           done
           gzip -dc /tmp/index.html.gz > app/src/main/assets/index.html
           echo "c58ff68ed0b0299733a603d478d0a43fec2e4f36133fb5a961d15f2c6315283c  app/src/main/assets/index.html" | sha256sum -c -
-      - name: Build debug APK without emulator
+      - name: Build safe side-by-side test APK without emulator
         run: gradle assembleDebug
       - uses: actions/upload-artifact@v4
         with:
-          name: My-Life-Manager-v9.13.161-APK
+          name: My-Life-Manager-v9.13.161-SAFE-TEST-APK
           path: app/build/outputs/apk/debug/app-debug.apk
