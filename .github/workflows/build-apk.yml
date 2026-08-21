@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - apk-v9.13.161-toolbar-fix
+  pull_request:
+    branches:
+      - main
 
 jobs:
   build:
