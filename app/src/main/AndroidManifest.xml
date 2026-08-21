@@ -3,7 +3,7 @@
     <application
         android:allowBackup="true"
         android:icon="@drawable/app_icon"
-        android:label="My Life Manager"
+        android:label="Life Manager Test 161"
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="false">
         <activity
