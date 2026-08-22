@@ -87,5 +87,4 @@ jobs:
           script: |
             adb shell wm size ${{ matrix.size }}
             adb shell wm density ${{ matrix.density }}
-            cd project
-            gradle connectedDebugAndroidTest --stacktrace
+            gradle -p project connectedDebugAndroidTest --stacktrace
