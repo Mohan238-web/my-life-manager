@@ -2,6 +2,7 @@ name: My Life Manager v9.13.198 final build
 
 on:
   push:
+  pull_request:
   workflow_dispatch:
 
 jobs:
