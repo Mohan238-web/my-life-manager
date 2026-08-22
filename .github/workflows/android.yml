@@ -1,0 +1,90 @@
+name: My Life Manager v9.13.198 final build
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: project
+    steps:
+      - uses: actions/checkout@v4
+      - name: Expand final source
+        working-directory: .
+        run: mkdir project && unzip -q My-Life-Manager-Android-v9.13.198-SOURCE.zip -d project
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - run: node scripts/validate_html.js
+      - run: node scripts/validate_android_project.js
+      - run: gradle testDebugUnitTest lintDebug assembleDebug --stacktrace
+      - name: Verify installable package
+        run: |
+          mkdir -p deliverable
+          cp app/build/outputs/apk/debug/app-debug.apk deliverable/My-Life-Manager-v9.13.198-STABLE.apk
+          unzip -t deliverable/My-Life-Manager-v9.13.198-STABLE.apk
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging deliverable/My-Life-Manager-v9.13.198-STABLE.apk | tee deliverable/aapt-badging.txt
+          grep -q "package: name='com.mylifemanager.app' versionCode='913198' versionName='9.13.198'" deliverable/aapt-badging.txt
+          grep -q "application-icon-.*:'res/" deliverable/aapt-badging.txt
+          sha256sum deliverable/My-Life-Manager-v9.13.198-STABLE.apk > deliverable/My-Life-Manager-v9.13.198-STABLE.apk.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: My-Life-Manager-v9.13.198-STABLE-APK
+          path: project/deliverable/
+
+  device-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - api: 23
+            size: 320x568
+            density: 280
+          - api: 28
+            size: 360x640
+            density: 320
+          - api: 33
+            size: 393x873
+            density: 420
+          - api: 35
+            size: 412x915
+            density: 420
+          - api: 35
+            size: 600x960
+            density: 320
+    steps:
+      - uses: actions/checkout@v4
+      - name: Expand final source
+        run: mkdir project && unzip -q My-Life-Manager-Android-v9.13.198-SOURCE.zip -d project
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          profile: pixel_2
+          emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -gpu swiftshader_indirect
+          script: |
+            adb shell wm size ${{ matrix.size }}
+            adb shell wm density ${{ matrix.density }}
+            cd project
+            gradle connectedDebugAndroidTest --stacktrace
