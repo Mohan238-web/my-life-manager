@@ -1,0 +1,41 @@
+name: Build v9.13.199 Home Menu
+
+on:
+  push:
+    branches: [release-v9.13.199-home-menu]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: build-v9.13.199
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - run: node scripts/validate_html.js
+      - run: node scripts/validate_android_project.js
+      - run: gradle testDebugUnitTest lintDebug assembleDebug --stacktrace
+      - name: Verify installable package
+        run: |
+          mkdir -p deliverable
+          cp app/build/outputs/apk/debug/app-debug.apk deliverable/My-Life-Manager-v9.13.199-HOME-MENU.apk
+          unzip -t deliverable/My-Life-Manager-v9.13.199-HOME-MENU.apk
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging deliverable/My-Life-Manager-v9.13.199-HOME-MENU.apk | tee deliverable/aapt-badging.txt
+          grep -q "package: name='com.mylifemanager.app' versionCode='913199' versionName='9.13.199'" deliverable/aapt-badging.txt
+          grep -q "application-icon-.*:'res/" deliverable/aapt-badging.txt
+          sha256sum deliverable/My-Life-Manager-v9.13.199-HOME-MENU.apk > deliverable/My-Life-Manager-v9.13.199-HOME-MENU.apk.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: My-Life-Manager-v9.13.199-HOME-MENU-APK
+          path: build-v9.13.199/deliverable/

@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">My Life Manager</string>
+    <string name="notification_channel_name">My Life Manager reminders</string>
+    <string name="notification_channel_description">Focus, task and routine reminders</string>
+    <string name="loading_app">Opening My Life Manager…</string>
+    <string name="startup_error">My Life Manager could not open.</string>
+    <string name="retry">Retry</string>
+</resources>
