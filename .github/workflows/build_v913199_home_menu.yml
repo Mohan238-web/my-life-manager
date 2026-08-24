@@ -3,6 +3,8 @@ name: Build v9.13.199 Home Menu
 on:
   push:
     branches: [release-v9.13.199-home-menu]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
