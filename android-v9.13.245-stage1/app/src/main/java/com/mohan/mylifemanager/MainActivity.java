@@ -3,6 +3,7 @@ package com.mohan.mylifemanager;
 import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
@@ -60,7 +61,8 @@ public final class MainActivity extends Activity {
         settings.setLoadWithOverviewMode(false);
         settings.setUseWideViewPort(true);
 
-        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
+        boolean debuggable = (getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+        WebView.setWebContentsDebuggingEnabled(debuggable);
         webView.addJavascriptInterface(new NativeNotificationsBridge(this), "MLMNativeNotificationsNative");
         webView.addJavascriptInterface(new NativeAppBridge(this), "MLMNativeAppNative");
         webView.setWebViewClient(new WebViewClient() {
