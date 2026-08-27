@@ -67,7 +67,7 @@ final class NotificationPublisher {
                     .addAction(new Notification.Action.Builder(R.drawable.ic_stat_fingerprint, "Open", open).build())
                     .addAction(new Notification.Action.Builder(android.R.drawable.ic_menu_close_clear_cancel, "Dismiss", dismiss).build());
             if (!source.isEmpty()) builder.setSubText(labelFor(source));
-            if (!payload.optBoolean("sound", true)) builder.setSilent(true);
+            if (!payload.optBoolean("sound", true)) builder.setSound(null);
             if (!payload.optBoolean("vibration", true)) builder.setVibrate(new long[]{0L});
             manager.notify(notificationId, builder.build());
             return true;
