@@ -41,6 +41,10 @@ jobs:
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk Corex-v9.13.247.apk
           test -s Corex-v9.13.247.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs Corex-v9.13.247.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging Corex-v9.13.247.apk | grep "package: name='com.mohan.mylifemanager' versionCode='913247' versionName='9.13.247-corex'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions Corex-v9.13.247.apk | grep 'android.permission.SYSTEM_ALERT_WINDOW'
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions Corex-v9.13.247.apk | grep 'android.permission.POST_NOTIFICATIONS'
 
       - name: Upload Stage 1 APK
         uses: actions/upload-artifact@v4
