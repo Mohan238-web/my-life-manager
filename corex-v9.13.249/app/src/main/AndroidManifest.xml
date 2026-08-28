@@ -16,9 +16,9 @@
 
     <application
         android:allowBackup="true"
-        android:icon="@mipmap/corex_icon_v249"
+        android:icon="@mipmap/corex_icon_v250"
         android:label="@string/app_name"
-        android:roundIcon="@mipmap/corex_icon_v249"
+        android:roundIcon="@mipmap/corex_icon_v250"
         android:supportsRtl="true"
         android:theme="@style/Theme.MyLifeManager"
         android:usesCleartextTraffic="false">
