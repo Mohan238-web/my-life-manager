@@ -6,10 +6,11 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -92,3 +93,11 @@ jobs:
           path: corex-v9.13.249/Corex-apksigner.jar
           if-no-files-found: error
           retention-days: 1
+
+      - name: Publish verified APK to the build branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f Corex-v9.13.249.apk
+          git commit -m "Attach verified Corex v9.13.249 APK"
+          git push origin HEAD:corex-v9.13.249
