@@ -34,7 +34,7 @@ jobs:
           mkdir -p app/src/main/assets
           cat app/src/main/assets_parts/index.html.gz.b64.part-* | base64 --decode | gzip --decompress > app/src/main/assets/index.html
           grep -q "corex-v913248-runtime" app/src/main/assets/index.html
-          grep -q "Choose a future time. The reminder was not turned on." app/src/main/assets/index.html
+          grep -q "MLMNativeNotifications" app/src/main/assets/index.html
 
       - name: Verify Android source requirements
         run: |
