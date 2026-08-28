@@ -1,0 +1,2 @@
+Corex v9.13.250 verified build trigger.
+No Android emulator is used.
