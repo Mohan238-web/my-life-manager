@@ -1,0 +1,107 @@
+name: Build Corex v9.13.250 APK
+
+on:
+  push:
+    branches: [ corex-v9.13.250 ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: corex-v9.13.249
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Restore consolidated HTML asset
+        run: |
+          mkdir -p app/src/main/assets
+          cat app/src/main/assets_parts/index.html.gz.b64.part-* | base64 --decode | gzip --decompress > app/src/main/assets/index.html
+          grep -q "corex-v913249-runtime" app/src/main/assets/index.html
+          grep -q "const VERSION='9.13.250'" app/src/main/assets/index.html
+          grep -q "MLMNativeNotifications" app/src/main/assets/index.html
+          python3 - <<'PY'
+          import base64, gzip, re
+          source = open("app/src/main/assets/index.html", encoding="utf-8").read()
+          match = re.search(r'\{"id":"focus","name":"Focus Ledger","data":"([^"]+)"', source)
+          assert match, "Focus Ledger payload missing"
+          focus = gzip.decompress(base64.b64decode(match.group(1))).decode()
+          assert "window.MLMPriorityReminderTarget=priorityReminderTarget" in focus
+          assert "window.MLMPriorityReminderTarget?.(today.date,p.start)" in focus
+          assert "scheduleGlobalReminder" in source
+          assert "result.reminderEnabled = !!prior.reminderEnabled" in focus
+          assert "saved-reminder-fields250" in gzip.decompress(base64.b64decode(re.search(r'\{"id":"notes","name":"Notes","data":"([^"]+)"', source).group(1))).decode()
+          PY
+
+      - name: Verify Android source requirements
+        run: |
+          grep -q "android.media.action.IMAGE_CAPTURE" app/src/main/AndroidManifest.xml
+          grep -q "@mipmap/corex_icon_v250" app/src/main/AndroidManifest.xml
+          grep -q "APP_SURFACE = Color.rgb(246, 247, 245)" app/src/main/java/com/mohan/mylifemanager/MainActivity.java
+          ! grep -q "buildSplashOverlay" app/src/main/java/com/mohan/mylifemanager/MainActivity.java
+          grep -q 'android:width="72dp"' app/src/main/res/drawable/corex_icon_v250_foreground.xml
+          grep -q 'android:gravity="center"' app/src/main/res/drawable/corex_icon_v250_foreground.xml
+          grep -q "R.drawable.corex_icon_v249_art_webp" app/src/main/java/com/mohan/mylifemanager/ReminderOverlayService.java
+          grep -q "requestExactAlarmPermissionOnce" app/src/main/java/com/mohan/mylifemanager/MainActivity.java
+          grep -q "Gravity.BOTTOM" app/src/main/java/com/mohan/mylifemanager/ReminderOverlayService.java
+
+      - name: Build installable APK without emulator
+        run: gradle --no-daemon --stacktrace :app:assembleDebug
+
+      - name: Rename and verify APK
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Corex-v9.13.250.apk
+          test -s Corex-v9.13.250.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs Corex-v9.13.250.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging Corex-v9.13.250.apk | grep "package: name='com.mohan.mylifemanager' versionCode='913250' versionName='9.13.250-corex'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions Corex-v9.13.250.apk | grep 'android.permission.SYSTEM_ALERT_WINDOW'
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions Corex-v9.13.250.apk | grep 'android.permission.POST_NOTIFICATIONS'
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions Corex-v9.13.250.apk | grep 'android.permission.SCHEDULE_EXACT_ALARM'
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions Corex-v9.13.250.apk | grep 'android.permission.CAMERA'
+
+      - name: Upload verified APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Corex-v9.13.250-APK
+          path: corex-v9.13.249/Corex-v9.13.250.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Prepare Android signing verifier
+        run: |
+          APKSIGNER_JAR=$(find "$ANDROID_HOME/build-tools" -path '*/lib/apksigner.jar' | sort -V | tail -1)
+          test -f "$APKSIGNER_JAR"
+          cp "$APKSIGNER_JAR" Corex-apksigner.jar
+
+      - name: Upload Android signing verifier
+        uses: actions/upload-artifact@v4
+        with:
+          name: Corex-apksigner-tool
+          path: corex-v9.13.249/Corex-apksigner.jar
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Publish verified APK to the build branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f Corex-v9.13.250.apk
+          git commit -m "Attach verified Corex v9.13.250 APK"
+          git push origin HEAD:corex-v9.13.250
