@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="app_name">Corex</string>
-    <string name="notification_channel_name">Corex reminders</string>
-    <string name="notification_channel_description">Notes, tasks, money, focus, trading, mileage and habit reminders</string>
-</resources>

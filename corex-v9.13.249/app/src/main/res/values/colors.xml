@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="launcher_blue">#071A92</color>
+    <color name="launcher_fingerprint">#FFFFFF</color>
+    <color name="app_surface_dark">#151B19</color>
+    <color name="app_start_surface">#F6F7F5</color>
+</resources>
