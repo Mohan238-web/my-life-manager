@@ -1,0 +1,66 @@
+name: Build Corex v9.13.248 APK
+
+on:
+  push:
+    branches: [ corex-v9.13.248 ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: corex-v9.13.248
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Restore consolidated HTML asset
+        run: |
+          mkdir -p app/src/main/assets
+          cat app/src/main/assets_parts/index.html.gz.b64.part-* | base64 --decode | gzip --decompress > app/src/main/assets/index.html
+          grep -q "corex-v913248-runtime" app/src/main/assets/index.html
+          grep -q "Choose a future time. The reminder was not turned on." app/src/main/assets/index.html
+
+      - name: Verify Android source requirements
+        run: |
+          grep -q "android.media.action.IMAGE_CAPTURE" app/src/main/AndroidManifest.xml
+          grep -q "@mipmap/corex_icon_v248" app/src/main/AndroidManifest.xml
+          grep -q "requestExactAlarmPermissionOnce" app/src/main/java/com/mohan/mylifemanager/MainActivity.java
+          grep -q "Gravity.BOTTOM" app/src/main/java/com/mohan/mylifemanager/ReminderOverlayService.java
+
+      - name: Build installable APK without emulator
+        run: gradle --no-daemon --stacktrace :app:assembleDebug
+
+      - name: Rename and verify APK
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Corex-v9.13.248.apk
+          test -s Corex-v9.13.248.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs Corex-v9.13.248.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging Corex-v9.13.248.apk | grep "package: name='com.mohan.mylifemanager' versionCode='913248' versionName='9.13.248-corex'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions Corex-v9.13.248.apk | grep 'android.permission.SYSTEM_ALERT_WINDOW'
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions Corex-v9.13.248.apk | grep 'android.permission.POST_NOTIFICATIONS'
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions Corex-v9.13.248.apk | grep 'android.permission.SCHEDULE_EXACT_ALARM'
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions Corex-v9.13.248.apk | grep 'android.permission.CAMERA'
+
+      - name: Upload verified APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Corex-v9.13.248-APK
+          path: corex-v9.13.248/Corex-v9.13.248.apk
+          if-no-files-found: error
+          retention-days: 30
