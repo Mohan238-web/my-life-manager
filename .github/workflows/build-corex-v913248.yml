@@ -64,3 +64,17 @@ jobs:
           path: corex-v9.13.248/Corex-v9.13.248.apk
           if-no-files-found: error
           retention-days: 30
+
+      - name: Prepare Android signing verifier
+        run: |
+          APKSIGNER_JAR=$(find "$ANDROID_HOME/build-tools" -path '*/lib/apksigner.jar' | sort -V | tail -1)
+          test -f "$APKSIGNER_JAR"
+          cp "$APKSIGNER_JAR" Corex-apksigner.jar
+
+      - name: Upload Android signing verifier
+        uses: actions/upload-artifact@v4
+        with:
+          name: Corex-apksigner-tool
+          path: corex-v9.13.248/Corex-apksigner.jar
+          if-no-files-found: error
+          retention-days: 1
