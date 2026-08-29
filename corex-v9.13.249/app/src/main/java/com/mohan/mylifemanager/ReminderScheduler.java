@@ -42,9 +42,12 @@ final class ReminderScheduler {
 
             if (canScheduleExact(context)) {
                 scheduleExact(context, id, at, payload.toString());
+                ReminderStore.recordStatus(context, "scheduled-exact", id, "Alarm accepted");
                 return "scheduled:exact";
             }
             scheduleWork(context, id, at, payload.toString());
+            ReminderStore.recordStatus(context, "scheduled-delayed", id,
+                    "Exact alarm permission is off; WorkManager fallback may be late");
             return "scheduled:workmanager";
         } catch (Exception error) {
             return "error:" + error.getClass().getSimpleName();
@@ -74,6 +77,22 @@ final class ReminderScheduler {
         int value = id == null ? 1 : id.hashCode();
         if (value == Integer.MIN_VALUE) value = 1;
         return Math.max(1, Math.abs(value));
+    }
+
+    static void reconcileStored(Context context) {
+        long now = System.currentTimeMillis();
+        for (String raw : ReminderStore.all(context)) {
+            try {
+                JSONObject payload = new JSONObject(raw);
+                String id = payload.optString("id", "");
+                if (payload.optLong("at", 0L) <= now) {
+                    if (ReminderStore.hasFreshActive(context, id, 30_000L)) continue;
+                    ReminderDelivery.deliver(context, payload.toString());
+                } else {
+                    schedule(context, payload.toString());
+                }
+            } catch (Exception ignored) {}
+        }
     }
 
     private static String workName(String id) {

@@ -17,6 +17,7 @@ final class ReminderStore {
     private static final String PREFIX = "reminder:";
     private static final String ACTIVE_PREFIX = "active:";
     private static final String DISMISSED = "dismissed_ids";
+    private static final String LAST_STATUS = "last_delivery_status";
 
     private ReminderStore() {}
 
@@ -38,7 +39,13 @@ final class ReminderStore {
     static void putActive(Context context, JSONObject payload) {
         String id = payload.optString("id", "");
         if (id.isEmpty()) return;
-        prefs(context).edit().putString(ACTIVE_PREFIX + id, payload.toString()).apply();
+        try {
+            JSONObject stored = new JSONObject(payload.toString());
+            stored.put("_deliveryAttemptAt", System.currentTimeMillis());
+            prefs(context).edit().putString(ACTIVE_PREFIX + id, stored.toString()).apply();
+        } catch (Exception ignored) {
+            prefs(context).edit().putString(ACTIVE_PREFIX + id, payload.toString()).apply();
+        }
     }
 
     static void removeActive(Context context, String id) {
@@ -56,6 +63,18 @@ final class ReminderStore {
         return rows;
     }
 
+    static boolean hasFreshActive(Context context, String id, long maxAgeMs) {
+        if (id == null || id.isEmpty()) return false;
+        String raw = prefs(context).getString(ACTIVE_PREFIX + id, null);
+        if (raw == null) return false;
+        try {
+            long attemptedAt = new JSONObject(raw).optLong("_deliveryAttemptAt", 0L);
+            if (attemptedAt > 0L && System.currentTimeMillis() - attemptedAt <= maxAgeMs) return true;
+        } catch (Exception ignored) {}
+        removeActive(context, id);
+        return false;
+    }
+
     static List<String> all(Context context) {
         List<String> rows = new ArrayList<>();
         for (Map.Entry<String, ?> entry : prefs(context).getAll().entrySet()) {
@@ -64,6 +83,31 @@ final class ReminderStore {
             }
         }
         return rows;
+    }
+
+    static void recordStatus(Context context, String event, String id, String detail) {
+        try {
+            JSONObject status = new JSONObject();
+            status.put("event", event == null ? "unknown" : event);
+            status.put("id", id == null ? "" : id);
+            status.put("detail", detail == null ? "" : detail);
+            status.put("at", System.currentTimeMillis());
+            status.put("scheduledCount", all(context).size());
+            status.put("activeCount", active(context).size());
+            prefs(context).edit().putString(LAST_STATUS, status.toString()).apply();
+        } catch (Exception ignored) {}
+    }
+
+    static String status(Context context) {
+        String raw = prefs(context).getString(LAST_STATUS, "{}");
+        try {
+            JSONObject status = new JSONObject(raw == null ? "{}" : raw);
+            status.put("scheduledCount", all(context).size());
+            status.put("activeCount", active(context).size());
+            return status.toString();
+        } catch (Exception ignored) {
+            return "{\"event\":\"unknown\"}";
+        }
     }
 
     static void markDismissed(Context context, String id) {

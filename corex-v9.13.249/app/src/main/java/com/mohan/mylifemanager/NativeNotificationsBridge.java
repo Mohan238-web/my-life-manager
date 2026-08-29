@@ -8,6 +8,8 @@ import android.os.Build;
 import android.provider.Settings;
 import android.webkit.JavascriptInterface;
 
+import org.json.JSONObject;
+
 final class NativeNotificationsBridge {
     private final MainActivity activity;
 
@@ -17,6 +19,7 @@ final class NativeNotificationsBridge {
 
     @JavascriptInterface
     public String schedule(String payload) {
+        activity.ensureReminderPermissionsForSchedule();
         String result = ReminderScheduler.schedule(activity, payload);
         if (result.startsWith("scheduled")) activity.mirrorScheduledReminder(payload);
         return result;
@@ -64,6 +67,20 @@ final class NativeNotificationsBridge {
     @JavascriptInterface
     public String overlayPermissionStatus() {
         return Settings.canDrawOverlays(activity) ? "granted" : "denied";
+    }
+
+    @JavascriptInterface
+    public String deliveryStatus() {
+        try {
+            JSONObject status = new JSONObject(ReminderStore.status(activity));
+            status.put("notifications", permissionStatus());
+            status.put("exactAlarm", exactAlarmPermissionStatus());
+            status.put("overlay", overlayPermissionStatus());
+            status.put("manufacturer", Build.MANUFACTURER == null ? "" : Build.MANUFACTURER);
+            return status.toString();
+        } catch (Exception ignored) {
+            return "{\"event\":\"unknown\"}";
+        }
     }
 
     @JavascriptInterface

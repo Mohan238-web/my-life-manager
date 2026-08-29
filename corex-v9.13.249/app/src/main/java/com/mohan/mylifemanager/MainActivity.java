@@ -51,6 +51,7 @@ public final class MainActivity extends Activity {
     private boolean pageReady;
     private boolean appReady;
     private boolean pendingCameraLaunch;
+    private int pendingReminderPermissionStep;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -319,6 +320,47 @@ public final class MainActivity extends Activity {
         });
     }
 
+    void ensureReminderPermissionsForSchedule() {
+        runOnUiThread(() -> {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+                    && !ReminderScheduler.canScheduleExact(this)) {
+                pendingReminderPermissionStep = 1;
+                try {
+                    startActivity(new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                            Uri.parse("package:" + getPackageName())));
+                    return;
+                } catch (Exception ignored) {}
+            }
+            openOverlayPermissionForScheduledReminder();
+        });
+    }
+
+    private void openOverlayPermissionForScheduledReminder() {
+        if (Settings.canDrawOverlays(this)) {
+            pendingReminderPermissionStep = 0;
+            ReminderScheduler.reconcileStored(this);
+            return;
+        }
+        pendingReminderPermissionStep = 2;
+        try {
+            startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + getPackageName())));
+        } catch (Exception ignored) {
+            pendingReminderPermissionStep = 0;
+        }
+    }
+
+    private void continueScheduledReminderPermissionSetup() {
+        if (pendingReminderPermissionStep == 1) {
+            openOverlayPermissionForScheduledReminder();
+            return;
+        }
+        if (pendingReminderPermissionStep == 2) {
+            pendingReminderPermissionStep = 0;
+            ReminderScheduler.reconcileStored(this);
+        }
+    }
+
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
@@ -348,7 +390,9 @@ public final class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         if (webView != null) webView.onResume();
-        if (appReady) requestNotificationPermissionOnce();
+        ReminderScheduler.reconcileStored(this);
+        if (pendingReminderPermissionStep != 0) continueScheduledReminderPermissionSetup();
+        else if (appReady) requestNotificationPermissionOnce();
         if (pageReady) deliverDismissedIds();
     }
 

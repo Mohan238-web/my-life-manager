@@ -1,2 +1,2 @@
-Corex v9.13.250 verified build trigger.
+Corex v9.13.252 verified build trigger: acknowledged reminder delivery and low-memory performance repair.
 No Android emulator is used.
