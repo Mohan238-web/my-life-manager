@@ -1,2 +1,2 @@
-Corex v9.13.250 verified build trigger.
+Corex v9.13.251 verified build trigger: persistent Priority bottom overlay.
 No Android emulator is used.

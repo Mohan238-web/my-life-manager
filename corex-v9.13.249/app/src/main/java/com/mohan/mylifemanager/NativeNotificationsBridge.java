@@ -17,6 +17,7 @@ final class NativeNotificationsBridge {
 
     @JavascriptInterface
     public String schedule(String payload) {
+        activity.ensureReminderPermissionsForSchedule();
         String result = ReminderScheduler.schedule(activity, payload);
         if (result.startsWith("scheduled")) activity.mirrorScheduledReminder(payload);
         return result;

@@ -14,6 +14,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.IBinder;
 import android.provider.Settings;
+import android.text.format.DateUtils;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
@@ -24,6 +25,7 @@ import android.widget.TextView;
 
 import org.json.JSONObject;
 
+import java.util.Date;
 import java.util.List;
 
 public final class ReminderOverlayService extends Service {
@@ -123,9 +125,9 @@ public final class ReminderOverlayService extends Service {
                         | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT);
         params.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
-        params.width = Math.max(dp(280), getResources().getDisplayMetrics().widthPixels - dp(36));
+        params.width = Math.max(dp(300), getResources().getDisplayMetrics().widthPixels - dp(24));
         params.x = 0;
-        params.y = dp(18);
+        params.y = dp(14);
         try {
             windowManager.addView(overlayView, params);
         } catch (Exception error) {
@@ -140,52 +142,55 @@ public final class ReminderOverlayService extends Service {
 
     private View buildCard(JSONObject payload) {
         LinearLayout outer = new LinearLayout(this);
-        outer.setOrientation(LinearLayout.VERTICAL);
-        outer.setPadding(dp(20), dp(18), dp(20), dp(18));
+        outer.setOrientation(LinearLayout.HORIZONTAL);
+        outer.setGravity(Gravity.CENTER_VERTICAL);
+        outer.setPadding(dp(12), dp(12), dp(12), dp(12));
         LinearLayout.LayoutParams outerMargins = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        outerMargins.setMargins(dp(18), 0, dp(18), 0);
+        outerMargins.setMargins(dp(12), 0, dp(12), 0);
         outer.setLayoutParams(outerMargins);
-        outer.setBackground(roundRect(Color.rgb(34, 34, 36), 30));
+        outer.setBackground(roundRect(Color.WHITE, 22));
         outer.setElevation(dp(18));
 
-        LinearLayout titleRow = new LinearLayout(this);
-        titleRow.setOrientation(LinearLayout.HORIZONTAL);
-        titleRow.setGravity(Gravity.CENTER_VERTICAL);
         ImageView icon = new ImageView(this);
         icon.setImageResource(R.drawable.corex_icon_v249_art_webp);
-        icon.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        icon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        icon.setPadding(dp(3), dp(3), dp(3), dp(3));
         GradientDrawable iconBg = new GradientDrawable();
         iconBg.setShape(GradientDrawable.OVAL);
         iconBg.setColor(Color.rgb(7, 26, 146));
         icon.setBackground(iconBg);
-        titleRow.addView(icon, new LinearLayout.LayoutParams(dp(54), dp(54)));
+        outer.addView(icon, new LinearLayout.LayoutParams(dp(66), dp(66)));
 
         LinearLayout textColumn = new LinearLayout(this);
         textColumn.setOrientation(LinearLayout.VERTICAL);
-        textColumn.setPadding(dp(14), 0, 0, 0);
-        TextView title = text(payload.optString("title", "Corex reminder"), 20, Color.WHITE, true);
+        textColumn.setPadding(dp(12), 0, dp(8), 0);
+        TextView eyebrow = text("COREX REMINDER", 11, BLUE, true);
+        TextView title = text(reminderTitle(payload), 19, BLUE, true);
         TextView body = text(payload.optString("body", "Open Corex to view this reminder."),
-                16, Color.rgb(220, 220, 224), false);
-        body.setPadding(0, dp(5), 0, 0);
-        body.setMaxLines(3);
+                14, Color.rgb(28, 32, 35), false);
+        TextView time = text(reminderTime(payload), 12, Color.rgb(99, 104, 109), false);
+        title.setPadding(0, dp(2), 0, 0);
+        body.setPadding(0, dp(3), 0, 0);
+        time.setPadding(0, dp(4), 0, 0);
+        body.setMaxLines(2);
+        textColumn.addView(eyebrow);
         textColumn.addView(title);
         textColumn.addView(body);
-        titleRow.addView(textColumn, new LinearLayout.LayoutParams(0,
+        textColumn.addView(time);
+        outer.addView(textColumn, new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        outer.addView(titleRow);
 
         LinearLayout buttons = new LinearLayout(this);
-        buttons.setOrientation(LinearLayout.HORIZONTAL);
-        buttons.setPadding(0, dp(18), 0, 0);
-        Button dismiss = actionButton("Dismiss", Color.rgb(77, 77, 80));
-        Button open = actionButton(openLabel(payload), BLUE);
-        LinearLayout.LayoutParams left = new LinearLayout.LayoutParams(0, dp(62), 1f);
-        left.setMargins(0, 0, dp(8), 0);
-        LinearLayout.LayoutParams right = new LinearLayout.LayoutParams(0, dp(62), 1f);
-        right.setMargins(dp(8), 0, 0, 0);
-        buttons.addView(dismiss, left);
-        buttons.addView(open, right);
+        buttons.setOrientation(LinearLayout.VERTICAL);
+        buttons.setGravity(Gravity.CENTER);
+        Button dismiss = actionButton("Dismiss", Color.rgb(238, 239, 241), Color.rgb(24, 27, 30));
+        Button open = actionButton(openLabel(payload), BLUE, Color.WHITE);
+        LinearLayout.LayoutParams top = new LinearLayout.LayoutParams(dp(112), dp(44));
+        top.setMargins(0, 0, 0, dp(6));
+        LinearLayout.LayoutParams bottom = new LinearLayout.LayoutParams(dp(112), dp(44));
+        buttons.addView(dismiss, top);
+        buttons.addView(open, bottom);
         outer.addView(buttons);
 
         dismiss.setOnClickListener(view -> finishCurrent(false));
@@ -193,14 +198,15 @@ public final class ReminderOverlayService extends Service {
         return outer;
     }
 
-    private Button actionButton(String label, int color) {
+    private Button actionButton(String label, int color, int textColor) {
         Button button = new Button(this);
         button.setText(label);
-        button.setTextColor(Color.WHITE);
-        button.setTextSize(17);
+        button.setTextColor(textColor);
+        button.setTextSize(14);
         button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         button.setAllCaps(false);
-        button.setBackground(roundRect(color, 20));
+        button.setPadding(dp(4), 0, dp(4), 0);
+        button.setBackground(roundRect(color, 12));
         return button;
     }
 
@@ -230,6 +236,25 @@ public final class ReminderOverlayService extends Service {
         if (source.startsWith("mileage") || source.startsWith("service")) return "Open Mileage";
         if (source.startsWith("habit")) return "Open Habit";
         return "Open Corex";
+    }
+
+    private static String reminderTitle(JSONObject payload) {
+        String source = payload.optString("source", "").toLowerCase();
+        int index = payload.optInt("priorityIndex", -1);
+        if ((source.startsWith("priority") || source.startsWith("focus")) && index >= 0 && index < 3) {
+            return "Priority " + (index + 1);
+        }
+        return payload.optString("title", "Corex reminder").replaceFirst("(?i)\\s+reminder$", "");
+    }
+
+    private String reminderTime(JSONObject payload) {
+        long at = payload.optLong("at", 0L);
+        if (at <= 0L) return "Reminder due";
+        String day = DateUtils.isToday(at)
+                ? "Today"
+                : android.text.format.DateFormat.format("EEE, d MMM", at).toString();
+        String time = android.text.format.DateFormat.getTimeFormat(this).format(new Date(at));
+        return day + " · " + time;
     }
 
     private void finishCurrent(boolean openApp) {

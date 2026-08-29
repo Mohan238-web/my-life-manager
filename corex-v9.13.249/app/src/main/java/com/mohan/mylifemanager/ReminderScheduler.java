@@ -76,6 +76,20 @@ final class ReminderScheduler {
         return Math.max(1, Math.abs(value));
     }
 
+    static void reconcileStored(Context context) {
+        long now = System.currentTimeMillis();
+        for (String raw : ReminderStore.all(context)) {
+            try {
+                JSONObject payload = new JSONObject(raw);
+                if (payload.optLong("at", 0L) <= now) {
+                    ReminderDelivery.deliver(context, payload.toString());
+                } else {
+                    schedule(context, payload.toString());
+                }
+            } catch (Exception ignored) {}
+        }
+    }
+
     private static String workName(String id) {
         return "mlm-reminder-" + Integer.toUnsignedString(id.hashCode());
     }
