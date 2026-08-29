@@ -1,8 +1,8 @@
-name: Build Corex v9.13.253 APK
+name: Build Corex v9.13.254 APK
 
 on:
   push:
-    branches: [ corex-v9.13.253 ]
+    branches: [ corex-v9.13.254 ]
   workflow_dispatch:
 
 permissions:
@@ -35,7 +35,7 @@ jobs:
           mkdir -p app/src/main/assets
           cat app/src/main/assets_parts/index.html.gz.b64.part-* | base64 --decode | gzip --decompress > app/src/main/assets/index.html
           grep -q "corex-v913249-runtime" app/src/main/assets/index.html
-          grep -q "const VERSION='9.13.253'" app/src/main/assets/index.html
+          grep -q "const VERSION='9.13.254'" app/src/main/assets/index.html
           grep -q "MLMNativeNotifications" app/src/main/assets/index.html
           python3 - <<'PY'
           import base64, gzip, re
@@ -50,7 +50,8 @@ jobs:
           assert "Navigation, autosave and temporary UI state must never cancel them" in focus
           assert "title:`Priority ${index+1}`" in focus
           assert "data-test-priority-reminder" in focus
-          assert "Android did not confirm an exact alarm. The reminder remains off." in focus
+          assert "await parent.MLMRequestNativeReminder(reminder)" in focus
+          assert "Android did not confirm an exact alarm" not in focus
           assert "saved-reminder-fields250" in gzip.decompress(base64.b64decode(re.search(r'\{"id":"notes","name":"Notes","data":"([^"]+)"', source).group(1))).decode()
           PY
 
@@ -70,6 +71,7 @@ jobs:
           grep -q 'setOrientation(LinearLayout.HORIZONTAL)' app/src/main/java/com/mohan/mylifemanager/ReminderOverlayService.java
           grep -q 'ensureReminderPermissionsForSchedule' app/src/main/java/com/mohan/mylifemanager/NativeNotificationsBridge.java
           grep -q 'String testNow' app/src/main/java/com/mohan/mylifemanager/NativeNotificationsBridge.java
+          grep -q 'Register the reminder before opening Android Settings' app/src/main/java/com/mohan/mylifemanager/NativeNotificationsBridge.java
           grep -q 'USE_EXACT_ALARM' app/src/main/AndroidManifest.xml
           grep -q 'ReminderDeliveryWatchdogReceiver' app/src/main/AndroidManifest.xml
           grep -q 'deliveryStatus' app/src/main/java/com/mohan/mylifemanager/NativeNotificationsBridge.java
@@ -87,20 +89,20 @@ jobs:
 
       - name: Rename and verify APK
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk Corex-v9.13.253.apk
-          test -s Corex-v9.13.253.apk
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs Corex-v9.13.253.apk
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging Corex-v9.13.253.apk | grep "package: name='com.mohan.mylifemanager' versionCode='913253' versionName='9.13.253-corex'"
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions Corex-v9.13.253.apk | grep 'android.permission.SYSTEM_ALERT_WINDOW'
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions Corex-v9.13.253.apk | grep 'android.permission.POST_NOTIFICATIONS'
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions Corex-v9.13.253.apk | grep 'android.permission.USE_EXACT_ALARM'
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions Corex-v9.13.253.apk | grep 'android.permission.CAMERA'
+          cp app/build/outputs/apk/debug/app-debug.apk Corex-v9.13.254.apk
+          test -s Corex-v9.13.254.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs Corex-v9.13.254.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging Corex-v9.13.254.apk | grep "package: name='com.mohan.mylifemanager' versionCode='913254' versionName='9.13.254-corex'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions Corex-v9.13.254.apk | grep 'android.permission.SYSTEM_ALERT_WINDOW'
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions Corex-v9.13.254.apk | grep 'android.permission.POST_NOTIFICATIONS'
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions Corex-v9.13.254.apk | grep 'android.permission.USE_EXACT_ALARM'
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions Corex-v9.13.254.apk | grep 'android.permission.CAMERA'
 
       - name: Upload verified APK
         uses: actions/upload-artifact@v4
         with:
-          name: Corex-v9.13.253-APK
-          path: corex-v9.13.249/Corex-v9.13.253.apk
+          name: Corex-v9.13.254-APK
+          path: corex-v9.13.249/Corex-v9.13.254.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -122,6 +124,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f Corex-v9.13.253.apk
-          git commit -m "Attach verified Corex v9.13.253 APK"
-          git push origin HEAD:corex-v9.13.253
+          git add -f Corex-v9.13.254.apk
+          git commit -m "Attach verified Corex v9.13.254 APK"
+          git push origin HEAD:corex-v9.13.254

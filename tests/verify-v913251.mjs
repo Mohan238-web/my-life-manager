@@ -11,7 +11,7 @@ const partFiles = fs.readdirSync(partsDir).filter(name => name.startsWith('index
 const packed = partFiles.map(name => fs.readFileSync(path.join(partsDir, name), 'utf8')).join('');
 const html = zlib.gunzipSync(Buffer.from(packed, 'base64')).toString('utf8');
 
-assert.match(html, /const VERSION='9\.13\.253'/);
+assert.match(html, /const VERSION='9\.13\.254'/);
 assert.match(html, /priority-bottom-overlay-delivery/);
 assert.match(html, /Show Priority reminder now/);
 assert.match(html, /memory:'keep'/);
@@ -21,6 +21,13 @@ assert.match(html, /await waitSuspend\(index,requestId\);if\(!allowActive&&index
   'an iframe that becomes active during suspension must not be unloaded');
 assert.match(html, /deliveryStatus\(\)/);
 assert.match(html, /workspace-native-reminder-test/);
+assert.match(html, /window\.MLMRequestNativeReminder=reminder=>scheduleGlobalReminder/);
+const globalSchedule = html.match(/async function scheduleGlobalReminder\(reminder=\{\}\)\{([\s\S]*?)\n\}/)?.[1] || '';
+const nativeBridgeStart = globalSchedule.indexOf("if(native.kind==='native-bridge')");
+const nativeScheduleCall = globalSchedule.indexOf('native.api.schedule', nativeBridgeStart);
+assert.ok(nativeBridgeStart >= 0 && nativeScheduleCall > nativeBridgeStart);
+assert.doesNotMatch(globalSchedule.slice(nativeBridgeStart, nativeScheduleCall), /requestPermission|requestOverlayPermission/,
+  'the parent must not pause for Android permissions before native storage');
 
 const focusMatch = html.match(/\{"id":"focus","name":"Focus Ledger","data":"([^"]+)"/);
 assert.ok(focusMatch, 'Focus Ledger payload is embedded');
@@ -33,8 +40,10 @@ assert.match(focus, /source:'focus-priority'/);
 assert.match(focus, /priorityIndex:index/);
 assert.match(focus, /pendingPriorityReminders/);
 assert.match(focus, /data-test-priority-reminder/);
-assert.match(focus, /Android did not confirm an exact alarm\. The reminder remains off\./);
-assert.match(focus, /data\.ok&&data\.delivery==='native-exact'/);
+assert.doesNotMatch(focus, /Android did not confirm an exact alarm/,
+  'the WebView timeout must not turn off a natively stored reminder');
+assert.match(focus, /await parent\.MLMRequestNativeReminder\(reminder\)/);
+assert.match(focus, /result\?\.ok&&String\(result\.delivery\|\|''\)\.startsWith\('native'\)/);
 assert.match(focus, /#habitPracticeApp #habitReminderBar,\.hp-reminder-bar\{display:none!important\}/);
 
 const scheduleBlock = focus.match(/function scheduleTodayAlarms\(\)\{([\s\S]*?)\n\}/)?.[1] || '';
@@ -78,8 +87,15 @@ const bridge = fs.readFileSync(path.join(app, 'src', 'main', 'java', 'com', 'moh
   'mylifemanager', 'NativeNotificationsBridge.java'), 'utf8');
 assert.match(bridge, /ensureReminderPermissionsForSchedule\(\)/);
 assert.match(bridge, /String testNow\(String payload\)/);
-assert.match(bridge, /error:exact-alarm-permission/);
+assert.match(bridge, /Register the reminder before opening Android Settings/);
 assert.match(bridge, /String deliveryStatus\(\)/);
+const nativeSchedule = bridge.match(/public String schedule\(String payload\) \{([\s\S]*?)\n    \}/)?.[1] || '';
+assert.ok(nativeSchedule.indexOf('ReminderScheduler.schedule(activity, payload)') >= 0);
+assert.ok(nativeSchedule.indexOf('ReminderScheduler.schedule(activity, payload)') < nativeSchedule.indexOf('ensureReminderPermissionsForSchedule()'),
+  'native fallback must be stored before opening exact-alarm permission');
+const nativeTest = bridge.match(/public String testNow\(String payload\) \{([\s\S]*?)\n    \}/)?.[1] || '';
+assert.ok(nativeTest.indexOf('ReminderStore.put(activity, reminder)') < nativeTest.indexOf('requestOverlayPermission()'),
+  'immediate test must be saved before opening overlay permission');
 
 const activity = fs.readFileSync(path.join(app, 'src', 'main', 'java', 'com', 'mohan',
   'mylifemanager', 'MainActivity.java'), 'utf8');
@@ -119,7 +135,7 @@ assert.match(watchdog, /notification-watchdog/);
 assert.match(watchdog, /NotificationPublisher\.show/);
 
 const gradle = fs.readFileSync(path.join(app, 'build.gradle.kts'), 'utf8');
-assert.match(gradle, /versionCode = 913253/);
-assert.match(gradle, /versionName = "9\.13\.253-corex"/);
+assert.match(gradle, /versionCode = 913254/);
+assert.match(gradle, /versionName = "9\.13\.254-corex"/);
 
-console.log('Corex v9.13.253 verification passed');
+console.log('Corex v9.13.254 verification passed');

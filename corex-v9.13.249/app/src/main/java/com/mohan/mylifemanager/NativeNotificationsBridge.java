@@ -19,27 +19,32 @@ final class NativeNotificationsBridge {
 
     @JavascriptInterface
     public String schedule(String payload) {
+        JSONObject reminder;
+        boolean priority;
         try {
-            JSONObject reminder = new JSONObject(payload == null ? "{}" : payload);
+            reminder = new JSONObject(payload == null ? "{}" : payload);
             String source = reminder.optString("source", "").toLowerCase();
-            boolean priority = source.startsWith("focus") || source.startsWith("priority");
-            if (priority && permissionStatus().equals("denied")) {
-                requestPermission();
-                return "error:notification-permission";
-            }
-            if (priority && !ReminderScheduler.canScheduleExact(activity)) {
-                activity.ensureReminderPermissionsForSchedule();
-                return "error:exact-alarm-permission";
-            }
-            if (priority && !Settings.canDrawOverlays(activity)) {
-                activity.requestOverlayPermission();
-                return "error:overlay-permission";
-            }
+            priority = source.startsWith("focus") || source.startsWith("priority");
         } catch (Exception error) {
             return "error:invalid-payload";
         }
+
+        // Register the reminder before opening Android Settings. If the WebView pauses while
+        // permission is granted, reconcileStored() can still upgrade this saved fallback to an
+        // exact alarm when MainActivity resumes.
         String result = ReminderScheduler.schedule(activity, payload);
-        if (result.startsWith("scheduled")) activity.mirrorScheduledReminder(payload);
+        if (!result.startsWith("scheduled")) return result;
+        activity.mirrorScheduledReminder(payload);
+
+        if (priority && permissionStatus().equals("denied")) requestPermission();
+        if (priority && !ReminderScheduler.canScheduleExact(activity)) {
+            activity.ensureReminderPermissionsForSchedule();
+            return result + ":permission-pending";
+        }
+        if (priority && !Settings.canDrawOverlays(activity)) {
+            activity.requestOverlayPermission();
+            return result + ":overlay-pending";
+        }
         return result;
     }
 
@@ -50,11 +55,12 @@ final class NativeNotificationsBridge {
             String id = reminder.optString("id", "focus-test-" + System.currentTimeMillis());
             reminder.put("id", id);
             reminder.put("at", System.currentTimeMillis());
+            // Store first so returning from the overlay-permission screen automatically retries.
+            ReminderStore.put(activity, reminder);
             if (!Settings.canDrawOverlays(activity)) {
                 activity.requestOverlayPermission();
-                return "error:overlay-permission";
+                return "pending:overlay-permission";
             }
-            ReminderStore.put(activity, reminder);
             boolean started = ReminderDelivery.deliver(activity, reminder.toString());
             return started ? "delivery-started" : "error:delivery-blocked";
         } catch (Exception error) {
