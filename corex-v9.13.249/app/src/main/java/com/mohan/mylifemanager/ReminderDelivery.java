@@ -18,6 +18,7 @@ final class ReminderDelivery {
                 ReminderStore.recordStatus(context, "overlay-starting", id,
                         "Waiting for the bottom card to confirm visibility");
                 if (ReminderOverlayService.show(context, payload.toString())) {
+                    ReminderScheduler.scheduleDeliveryWatchdog(context, payload.toString());
                     return true;
                 }
                 ReminderStore.removeActive(context, id);

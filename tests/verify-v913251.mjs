@@ -11,13 +11,16 @@ const partFiles = fs.readdirSync(partsDir).filter(name => name.startsWith('index
 const packed = partFiles.map(name => fs.readFileSync(path.join(partsDir, name), 'utf8')).join('');
 const html = zlib.gunzipSync(Buffer.from(packed, 'base64')).toString('utf8');
 
-assert.match(html, /const VERSION='9\.13\.252'/);
+assert.match(html, /const VERSION='9\.13\.253'/);
 assert.match(html, /priority-bottom-overlay-delivery/);
-assert.match(html, /Test Priority reminder \(10 sec\)/);
-assert.match(html, /memory:'low'/);
-assert.match(html, /PERFORMANCE_FIX_252/);
+assert.match(html, /Show Priority reminder now/);
+assert.match(html, /memory:'keep'/);
+assert.match(html, /PERFORMANCE_REPAIR_253/);
 assert.match(html, /async function waitSuspend\(index,requestId,timeout=600\)/);
+assert.match(html, /await waitSuspend\(index,requestId\);if\(!allowActive&&index===active\)return false/,
+  'an iframe that becomes active during suspension must not be unloaded');
 assert.match(html, /deliveryStatus\(\)/);
+assert.match(html, /workspace-native-reminder-test/);
 
 const focusMatch = html.match(/\{"id":"focus","name":"Focus Ledger","data":"([^"]+)"/);
 assert.ok(focusMatch, 'Focus Ledger payload is embedded');
@@ -28,6 +31,10 @@ assert.match(focus, /Navigation, autosave and temporary UI state must never canc
 assert.match(focus, /title:`Priority \$\{index\+1\}`/);
 assert.match(focus, /source:'focus-priority'/);
 assert.match(focus, /priorityIndex:index/);
+assert.match(focus, /pendingPriorityReminders/);
+assert.match(focus, /data-test-priority-reminder/);
+assert.match(focus, /Android did not confirm an exact alarm\. The reminder remains off\./);
+assert.match(focus, /data\.ok&&data\.delivery==='native-exact'/);
 assert.match(focus, /#habitPracticeApp #habitReminderBar,\.hp-reminder-bar\{display:none!important\}/);
 
 const scheduleBlock = focus.match(/function scheduleTodayAlarms\(\)\{([\s\S]*?)\n\}/)?.[1] || '';
@@ -70,6 +77,8 @@ assert.match(overlay, /overlay-visible/);
 const bridge = fs.readFileSync(path.join(app, 'src', 'main', 'java', 'com', 'mohan',
   'mylifemanager', 'NativeNotificationsBridge.java'), 'utf8');
 assert.match(bridge, /ensureReminderPermissionsForSchedule\(\)/);
+assert.match(bridge, /String testNow\(String payload\)/);
+assert.match(bridge, /error:exact-alarm-permission/);
 assert.match(bridge, /String deliveryStatus\(\)/);
 
 const activity = fs.readFileSync(path.join(app, 'src', 'main', 'java', 'com', 'mohan',
@@ -82,7 +91,7 @@ const scheduler = fs.readFileSync(path.join(app, 'src', 'main', 'java', 'com', '
   'mylifemanager', 'ReminderScheduler.java'), 'utf8');
 assert.match(scheduler, /static void reconcileStored\(Context context\)/);
 assert.match(scheduler, /ReminderDelivery\.deliver\(context, payload\.toString\(\)\)/);
-assert.match(scheduler, /scheduled-delayed/);
+assert.match(scheduler, /scheduleDeliveryWatchdog/);
 assert.match(scheduler, /hasFreshActive/);
 
 const delivery = fs.readFileSync(path.join(app, 'src', 'main', 'java', 'com', 'mohan',
@@ -92,15 +101,25 @@ assert.doesNotMatch(optimisticRemove, /ReminderStore\.remove\(context, id\)/,
   'delivery must not delete the alarm before the overlay confirms visibility');
 
 const manifest = fs.readFileSync(path.join(app, 'src', 'main', 'AndroidManifest.xml'), 'utf8');
-for (const permission of ['POST_NOTIFICATIONS', 'SCHEDULE_EXACT_ALARM', 'SYSTEM_ALERT_WINDOW',
+for (const permission of ['POST_NOTIFICATIONS', 'USE_EXACT_ALARM', 'SYSTEM_ALERT_WINDOW',
   'FOREGROUND_SERVICE', 'FOREGROUND_SERVICE_SPECIAL_USE', 'RECEIVE_BOOT_COMPLETED']) {
   assert.match(manifest, new RegExp(`android\\.permission\\.${permission}`));
 }
 assert.match(manifest, /ReminderOverlayService/);
+assert.match(manifest, /ReminderDeliveryWatchdogReceiver/);
 assert.match(manifest, /BootReceiver/);
 
-const gradle = fs.readFileSync(path.join(app, 'build.gradle.kts'), 'utf8');
-assert.match(gradle, /versionCode = 913252/);
-assert.match(gradle, /versionName = "9\.13\.252-corex"/);
+const alarmReceiver = fs.readFileSync(path.join(app, 'src', 'main', 'java', 'com', 'mohan',
+  'mylifemanager', 'NotificationAlarmReceiver.java'), 'utf8');
+assert.match(alarmReceiver, /alarm-received/);
 
-console.log('Corex v9.13.252 verification passed');
+const watchdog = fs.readFileSync(path.join(app, 'src', 'main', 'java', 'com', 'mohan',
+  'mylifemanager', 'ReminderDeliveryWatchdogReceiver.java'), 'utf8');
+assert.match(watchdog, /notification-watchdog/);
+assert.match(watchdog, /NotificationPublisher\.show/);
+
+const gradle = fs.readFileSync(path.join(app, 'build.gradle.kts'), 'utf8');
+assert.match(gradle, /versionCode = 913253/);
+assert.match(gradle, /versionName = "9\.13\.253-corex"/);
+
+console.log('Corex v9.13.253 verification passed');

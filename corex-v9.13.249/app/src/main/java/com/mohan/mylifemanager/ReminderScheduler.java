@@ -24,6 +24,7 @@ import java.util.concurrent.TimeUnit;
 final class ReminderScheduler {
     static final String EXTRA_PAYLOAD = "mlm_notification_payload";
     private static final String ALARM_ACTION = "com.mohan.mylifemanager.REMINDER.";
+    private static final String WATCHDOG_ACTION = "com.mohan.mylifemanager.REMINDER_WATCHDOG.";
 
     private ReminderScheduler() {}
 
@@ -77,6 +78,25 @@ final class ReminderScheduler {
         int value = id == null ? 1 : id.hashCode();
         if (value == Integer.MIN_VALUE) value = 1;
         return Math.max(1, Math.abs(value));
+    }
+
+    static void scheduleDeliveryWatchdog(Context context, String rawPayload) {
+        try {
+            JSONObject payload = new JSONObject(rawPayload == null ? "{}" : rawPayload);
+            String id = payload.optString("id", "");
+            if (id.isEmpty()) return;
+            Intent intent = new Intent(context, ReminderDeliveryWatchdogReceiver.class)
+                    .setAction(WATCHDOG_ACTION + id)
+                    .putExtra(EXTRA_PAYLOAD, payload.toString());
+            PendingIntent pending = PendingIntent.getBroadcast(context,
+                    notificationId(id) ^ 0x253, intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            AlarmManager alarms = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+            if (alarms == null) return;
+            long at = System.currentTimeMillis() + 8_000L;
+            if (canScheduleExact(context)) alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending);
+            else alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending);
+        } catch (Exception ignored) {}
     }
 
     static void reconcileStored(Context context) {

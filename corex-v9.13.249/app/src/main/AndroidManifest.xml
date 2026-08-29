@@ -6,7 +6,8 @@
         </intent>
     </queries>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.CAMERA" />
@@ -45,6 +46,7 @@
         </provider>
 
         <receiver android:name=".NotificationAlarmReceiver" android:exported="false" />
+        <receiver android:name=".ReminderDeliveryWatchdogReceiver" android:exported="false" />
         <receiver android:name=".NotificationActionReceiver" android:exported="false" />
         <service
             android:name=".ReminderOverlayService"

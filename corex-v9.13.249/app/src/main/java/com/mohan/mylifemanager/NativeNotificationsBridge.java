@@ -19,10 +19,47 @@ final class NativeNotificationsBridge {
 
     @JavascriptInterface
     public String schedule(String payload) {
-        activity.ensureReminderPermissionsForSchedule();
+        try {
+            JSONObject reminder = new JSONObject(payload == null ? "{}" : payload);
+            String source = reminder.optString("source", "").toLowerCase();
+            boolean priority = source.startsWith("focus") || source.startsWith("priority");
+            if (priority && permissionStatus().equals("denied")) {
+                requestPermission();
+                return "error:notification-permission";
+            }
+            if (priority && !ReminderScheduler.canScheduleExact(activity)) {
+                activity.ensureReminderPermissionsForSchedule();
+                return "error:exact-alarm-permission";
+            }
+            if (priority && !Settings.canDrawOverlays(activity)) {
+                activity.requestOverlayPermission();
+                return "error:overlay-permission";
+            }
+        } catch (Exception error) {
+            return "error:invalid-payload";
+        }
         String result = ReminderScheduler.schedule(activity, payload);
         if (result.startsWith("scheduled")) activity.mirrorScheduledReminder(payload);
         return result;
+    }
+
+    @JavascriptInterface
+    public String testNow(String payload) {
+        try {
+            JSONObject reminder = new JSONObject(payload == null ? "{}" : payload);
+            String id = reminder.optString("id", "focus-test-" + System.currentTimeMillis());
+            reminder.put("id", id);
+            reminder.put("at", System.currentTimeMillis());
+            if (!Settings.canDrawOverlays(activity)) {
+                activity.requestOverlayPermission();
+                return "error:overlay-permission";
+            }
+            ReminderStore.put(activity, reminder);
+            boolean started = ReminderDelivery.deliver(activity, reminder.toString());
+            return started ? "delivery-started" : "error:delivery-blocked";
+        } catch (Exception error) {
+            return "error:" + error.getClass().getSimpleName();
+        }
     }
 
     @JavascriptInterface

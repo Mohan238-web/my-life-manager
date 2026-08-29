@@ -85,6 +85,10 @@ final class ReminderStore {
         return rows;
     }
 
+    static boolean contains(Context context, String id) {
+        return id != null && !id.isEmpty() && prefs(context).contains(PREFIX + id);
+    }
+
     static void recordStatus(Context context, String event, String id, String detail) {
         try {
             JSONObject status = new JSONObject();
