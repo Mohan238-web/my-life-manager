@@ -1,0 +1,23 @@
+name: Fetch Android Sign Tools
+on:
+  push:
+    branches: [phonebridge-v2-build]
+    paths: ['.github/workflows/fetch-android-sign-tools.yml']
+  workflow_dispatch:
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: android-actions/setup-android@v3
+      - name: Install build tools
+        run: sdkmanager "build-tools;35.0.0"
+      - name: Collect tools
+        run: |
+          mkdir out
+          cp "$ANDROID_HOME/build-tools/35.0.0/zipalign" out/
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" out/
+          chmod +x out/zipalign
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-sign-tools-35
+          path: out
