@@ -26,8 +26,6 @@ jobs:
       - name: Restore and verify the approved Corex HTML
         run: |
           mkdir -p app/src/main/assets
-          base64 --decode app/src/main/res/drawable-nodpi/corex_icon_v259_art.webp.b64 > app/src/main/res/drawable-nodpi/corex_icon_v259_art.webp
-          rm app/src/main/res/drawable-nodpi/corex_icon_v259_art.webp.b64
           cat app/src/main/assets_parts/index.html.gz.b64.part-* | base64 --decode | gzip --decompress > app/src/main/assets/index.html
           grep -q "const VERSION='9.13.259'" app/src/main/assets/index.html
           grep -q 'corex-approved-settings-v913259-style' app/src/main/assets/index.html
@@ -38,6 +36,10 @@ jobs:
       - name: Run Corex, reminder and connection regressions
         working-directory: .
         run: node tests/verify-v913251.mjs
+      - name: Prepare approved launcher resource
+        run: |
+          base64 --decode app/src/main/res/drawable-nodpi/corex_icon_v259_art.webp.b64 > app/src/main/res/drawable-nodpi/corex_icon_v259_art.webp
+          rm app/src/main/res/drawable-nodpi/corex_icon_v259_art.webp.b64
       - name: Compile Android app without emulator
         run: gradle --no-daemon --stacktrace :app:assembleDebug
       - name: Verify APK identity and packaged components
