@@ -5,7 +5,7 @@
         android:height="72dp"
         android:gravity="center">
         <bitmap
-            android:src="@drawable/corex_icon_v249_art_webp"
+            android:src="@drawable/corex_icon_v259_art"
             android:gravity="fill" />
     </item>
 </layer-list>
