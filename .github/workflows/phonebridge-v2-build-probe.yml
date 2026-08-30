@@ -1,0 +1,10 @@
+name: PhoneBridge Build Probe
+on:
+  push:
+    branches: [phonebridge-v2-build]
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "PhoneBridge build runner is available"
