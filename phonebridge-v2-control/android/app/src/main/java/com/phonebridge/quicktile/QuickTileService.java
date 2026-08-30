@@ -37,10 +37,12 @@ public class QuickTileService extends TileService {
         new Thread(() -> {
             try {
                 ControlClient.Status status = ControlClient.status(this);
-                if (status.running) {
+                if (status.connected) {
                     ControlClient.turnOff(this);
                     main.post(() -> setTile(false, false));
                 } else {
+                    // The PC normally auto-starts and waits in the tray.
+                    // A tap while it is merely waiting must CONNECT, not stop it.
                     ControlClient.turnOn(this);
                     main.post(() -> {
                         setTile(false, true);
@@ -87,7 +89,7 @@ public class QuickTileService extends TileService {
             tile.setLabel("PhoneBridge");
             if (Build.VERSION.SDK_INT >= 29) tile.setSubtitle("Connected");
         } else if (running) {
-            tile.setState(Tile.STATE_ACTIVE);
+            tile.setState(Tile.STATE_INACTIVE);
             tile.setLabel("PhoneBridge");
             if (Build.VERSION.SDK_INT >= 29) tile.setSubtitle("Waiting");
         } else {
