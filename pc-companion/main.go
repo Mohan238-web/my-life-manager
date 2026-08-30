@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	companionVersion = "1.1.0"
+	companionVersion = "1.1.1"
 	defaultPort = 47625
 	maxBody = 16 << 20
 )
