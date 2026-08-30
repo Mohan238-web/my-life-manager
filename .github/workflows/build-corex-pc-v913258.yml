@@ -1,0 +1,95 @@
+name: Build Corex v9.13.258 and Full PC Companion
+
+on:
+  push:
+    branches: [ corex-pc-v9.13.258 ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: corex-v9.13.249
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: Restore and verify the corrected Corex HTML
+        run: |
+          mkdir -p app/src/main/assets
+          cat app/src/main/assets_parts/index.html.gz.b64.part-* | base64 --decode | gzip --decompress > app/src/main/assets/index.html
+          grep -q "const VERSION='9.13.258'" app/src/main/assets/index.html
+          grep -q 'id="pcScanQr"' app/src/main/assets/index.html
+          grep -q 'data-pc-transport="USB tethering"' app/src/main/assets/index.html
+          grep -q 'native.scanQr()' app/src/main/assets/index.html
+      - name: Run Corex, reminder and connection regressions
+        working-directory: .
+        run: node tests/verify-v913251.mjs
+      - name: Compile Android app without emulator
+        run: gradle --no-daemon --stacktrace :app:assembleDebug
+      - name: Verify APK identity, QR scanner and connection components
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Corex-v9.13.258-unsigned.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose Corex-v9.13.258-unsigned.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging Corex-v9.13.258-unsigned.apk | grep "package: name='com.mohan.mylifemanager' versionCode='913258' versionName='9.13.258-corex-pc'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions Corex-v9.13.258-unsigned.apk | grep 'android.permission.CAMERA'
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions Corex-v9.13.258-unsigned.apk | grep 'android.permission.INTERNET'
+          unzip -l Corex-v9.13.258-unsigned.apk | grep 'assets/index.html'
+          unzip -p Corex-v9.13.258-unsigned.apk classes.dex | strings | grep 'IntentIntegrator'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Corex-v9.13.258-unsigned-APK
+          path: corex-v9.13.249/Corex-v9.13.258-unsigned.apk
+          if-no-files-found: error
+          retention-days: 30
+      - name: Prepare Android signing verifier
+        run: |
+          APKSIGNER_JAR=$(find "$ANDROID_HOME/build-tools" -path '*/lib/apksigner.jar' | sort -V | tail -1)
+          test -f "$APKSIGNER_JAR"
+          cp "$APKSIGNER_JAR" Corex-apksigner.jar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Corex-apksigner-tool-v913258
+          path: corex-v9.13.249/Corex-apksigner.jar
+          if-no-files-found: error
+          retention-days: 1
+
+  windows-companion:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: pc-companion
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+          cache-dependency-path: pc-companion/go.mod
+      - name: Test encryption, pairing, full Corex interface and recovery
+        run: go test -v ./...
+      - name: Build one standalone Windows EXE
+        shell: cmd
+        run: build-windows.bat
+      - name: Verify small native EXE and embedded Corex interface
+        shell: pwsh
+        run: |
+          $file = Get-Item Corex-PC-Companion-v1.1.0.exe
+          if ($file.Length -lt 1000000 -or $file.Length -gt 30000000) { throw "Unexpected EXE size: $($file.Length)" }
+          $bytes = [System.IO.File]::ReadAllBytes($file.FullName)
+          if ($bytes[0] -ne 0x4d -or $bytes[1] -ne 0x5a) { throw "Not a Windows PE executable" }
+          Get-FileHash $file.FullName -Algorithm SHA256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Corex-PC-Companion-v1.1.0-Windows
+          path: pc-companion/Corex-PC-Companion-v1.1.0.exe
+          if-no-files-found: error
+          retention-days: 30

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"compress/gzip"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hmac"
@@ -10,6 +12,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	_ "embed"
 	"errors"
 	"fmt"
 	"io"
@@ -29,7 +32,7 @@ import (
 )
 
 const (
-	companionVersion = "1.0.0"
+	companionVersion = "1.1.0"
 	defaultPort = 47625
 	maxBody = 16 << 20
 )
@@ -68,6 +71,9 @@ type app struct {
 
 type envelope struct { IV string `json:"iv"`; Cipher string `json:"cipher"` }
 
+//go:embed corex.html.gz
+var embeddedCorexHTML []byte
+
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	a, err := newApp(defaultPort)
@@ -103,10 +109,12 @@ func newApp(port int) (*app, error) {
 func (a *app) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", a.dashboard)
+	mux.HandleFunc("/app", a.corexApp)
 	mux.HandleFunc("/dashboard/state", a.dashboardState)
 	mux.HandleFunc("/dashboard/qr.svg", a.dashboardQR)
 	mux.HandleFunc("/dashboard/update", a.dashboardUpdate)
 	mux.HandleFunc("/dashboard/export", a.dashboardExport)
+	mux.HandleFunc("/dashboard/restore", a.dashboardRestore)
 	mux.HandleFunc("/dashboard/rotate-pin", a.rotatePIN)
 	mux.HandleFunc("/dashboard/autostart", a.autostart)
 	mux.HandleFunc("/dashboard/exit", a.stop)
@@ -195,13 +203,29 @@ func (a *app) dashboard(w http.ResponseWriter, r *http.Request) {
 	_,_=io.WriteString(w,dashboardHTML)
 }
 
+func (a *app) corexApp(w http.ResponseWriter, r *http.Request) {
+	if !localRequest(r) { http.NotFound(w,r); return }
+	if r.URL.Path!="/app" { http.NotFound(w,r); return }
+	reader,err:=gzip.NewReader(bytes.NewReader(embeddedCorexHTML))
+	if err!=nil { writeError(w,http.StatusInternalServerError,"The embedded Corex interface could not be opened."); return }
+	plain,err:=io.ReadAll(io.LimitReader(reader,20<<20));_ = reader.Close()
+	if err!=nil { writeError(w,http.StatusInternalServerError,"The embedded Corex interface could not be read."); return }
+	html:=string(plain)
+	if !strings.Contains(html,"</body>") { writeError(w,http.StatusInternalServerError,"The embedded Corex interface is incomplete."); return }
+	html=strings.Replace(html,"</body>",pcBridgeScript+"</body>",1)
+	w.Header().Set("Content-Type","text/html; charset=utf-8")
+	_,_=io.WriteString(w,html)
+}
+
 func (a *app) dashboardState(w http.ResponseWriter, r *http.Request) {
 	if !localRequest(r) { http.NotFound(w,r); return }
 	a.mu.Lock(); defer a.mu.Unlock()
 	peers:=make([]map[string]any,0,len(a.state.Peers))
 	for _,p:=range a.state.Peers { peers=append(peers,map[string]any{"name":p.DeviceName,"lastSeen":p.LastSeen}) }
 	sort.Slice(peers,func(i,j int)bool{return peers[i]["lastSeen"].(int64)>peers[j]["lastSeen"].(int64)})
-	writeJSON(w,http.StatusOK,map[string]any{"version":companionVersion,"pin":a.pairingCode,"port":a.port,"serverId":a.state.ServerID,"addresses":privateIPv4(),"revision":a.state.Revision,"snapshot":a.state.Snapshot,"peers":peers,"autostart":autostartEnabled()})
+	backups:=make([]map[string]any,0,len(a.state.Backups))
+	for i:=len(a.state.Backups)-1;i>=0;i-- { b:=a.state.Backups[i];backups=append(backups,map[string]any{"revision":b.Revision,"savedAt":b.SavedAt}) }
+	writeJSON(w,http.StatusOK,map[string]any{"version":companionVersion,"pin":a.pairingCode,"port":a.port,"serverId":a.state.ServerID,"addresses":privateIPv4(),"revision":a.state.Revision,"snapshot":a.state.Snapshot,"peers":peers,"backups":backups,"autostart":autostartEnabled()})
 }
 
 func (a *app) dashboardQR(w http.ResponseWriter, r *http.Request) {
@@ -226,6 +250,16 @@ func (a *app) dashboardUpdate(w http.ResponseWriter, r *http.Request) {
 func (a *app) dashboardExport(w http.ResponseWriter,r *http.Request){
 	if !localRequest(r){http.NotFound(w,r);return};a.mu.Lock();snapshot:=a.state.Snapshot;a.mu.Unlock()
 	w.Header().Set("Content-Type","application/json");w.Header().Set("Content-Disposition",`attachment; filename="Corex-PC-Snapshot.json"`);_,_=io.WriteString(w,snapshot)
+}
+
+func (a *app) dashboardRestore(w http.ResponseWriter,r *http.Request){
+	if !localRequest(r){http.NotFound(w,r);return};if r.Method!=http.MethodPost{methodNotAllowed(w);return}
+	var request struct{Revision int64 `json:"revision"`};if err:=readJSON(r,&request);err!=nil{writeError(w,http.StatusBadRequest,"Choose a valid safety version.");return}
+	a.mu.Lock();defer a.mu.Unlock();selected:="";for i:=len(a.state.Backups)-1;i>=0;i--{if a.state.Backups[i].Revision==request.Revision{selected=a.state.Backups[i].Snapshot;break}}
+	if !validSnapshot(selected){writeError(w,http.StatusNotFound,"That safety version is no longer available.");return}
+	a.backupLocked();a.state.Snapshot=selected;a.state.Revision++
+	if err:=a.saveLocked();err!=nil{writeError(w,http.StatusInternalServerError,"The safety version could not be restored.");return}
+	writeJSON(w,http.StatusOK,map[string]any{"revision":a.state.Revision})
 }
 
 func (a *app) rotatePIN(w http.ResponseWriter,r *http.Request){

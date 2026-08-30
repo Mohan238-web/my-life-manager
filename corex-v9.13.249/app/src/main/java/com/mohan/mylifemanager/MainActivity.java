@@ -25,6 +25,9 @@ import android.webkit.WebViewClient;
 
 import androidx.core.content.FileProvider;
 
+import com.google.zxing.integration.android.IntentIntegrator;
+import com.google.zxing.integration.android.IntentResult;
+
 import org.json.JSONObject;
 
 import java.io.File;
@@ -201,17 +204,7 @@ public final class MainActivity extends Activity {
     private void handleIntent(Intent intent) {
         if (intent == null) return;
         Uri data = intent.getData();
-        if (data != null && "corex".equalsIgnoreCase(data.getScheme())
-                && "pair".equalsIgnoreCase(data.getHost())) {
-            try {
-                JSONObject pair = new JSONObject();
-                pair.put("host", data.getQueryParameter("host"));
-                pair.put("port", data.getQueryParameter("port"));
-                pair.put("code", data.getQueryParameter("code"));
-                pair.put("serverId", data.getQueryParameter("server"));
-                pendingPcPairPayload = pair.toString();
-                dispatchPendingPcPair();
-            } catch (Exception ignored) {}
+        if (handlePairUri(data)) {
             intent.setData(null);
         }
         String payload = intent.getStringExtra(ReminderScheduler.EXTRA_PAYLOAD);
@@ -225,6 +218,37 @@ public final class MainActivity extends Activity {
         pendingOpenPayload = payload;
         dispatchPendingOpen();
         intent.removeExtra(ReminderScheduler.EXTRA_PAYLOAD);
+    }
+
+    private boolean handlePairUri(Uri data) {
+        if (data == null || !"corex".equalsIgnoreCase(data.getScheme())
+                || !"pair".equalsIgnoreCase(data.getHost())) return false;
+        String host = data.getQueryParameter("host");
+        String port = data.getQueryParameter("port");
+        String code = data.getQueryParameter("code");
+        if (host == null || host.trim().isEmpty() || code == null
+                || !code.replaceAll("\\D", "").matches("\\d{6}")) return false;
+        try {
+            JSONObject pair = new JSONObject();
+            pair.put("host", host);
+            pair.put("port", port == null || port.isEmpty() ? "47625" : port);
+            pair.put("code", code);
+            pair.put("serverId", data.getQueryParameter("server"));
+            pendingPcPairPayload = pair.toString();
+            dispatchPendingPcPair();
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    void startQrScan() {
+        runOnUiThread(() -> new IntentIntegrator(this)
+                .setDesiredBarcodeFormats(IntentIntegrator.QR_CODE)
+                .setPrompt("Scan the QR code shown by Corex PC Companion")
+                .setBeepEnabled(false)
+                .setOrientationLocked(false)
+                .initiateScan());
     }
 
     private void dispatchPendingOpen() {
@@ -452,6 +476,16 @@ public final class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        IntentResult scan = IntentIntegrator.parseActivityResult(requestCode, resultCode, data);
+        if (scan != null) {
+            if (scan.getContents() == null) {
+                if (pcBridge != null) pcBridge.sendScanError("QR scanning was cancelled.");
+            } else if (!handlePairUri(Uri.parse(scan.getContents()))) {
+                if (pcBridge != null) pcBridge.sendScanError(
+                        "This is not a Corex PC Companion QR code.");
+            }
+            return;
+        }
         if (requestCode != REQUEST_FILE || fileCallback == null) return;
         Uri[] result;
         if (resultCode == RESULT_OK && cameraOutputUri != null) result = new Uri[]{cameraOutputUri};

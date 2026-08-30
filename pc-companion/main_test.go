@@ -54,3 +54,26 @@ func TestQRAndSnapshotValidation(t *testing.T){
 	svg,err:=qrSVG(link);if err!=nil{t.Fatal(err)};if !strings.Contains(svg,"viewBox=\"0 0 45 45\"")||!strings.Contains(svg,"Corex pairing QR code"){t.Fatalf("unexpected QR SVG")}
 	if !validSnapshot(`{"a":"b"}`)||validSnapshot(`[]`){t.Fatalf("snapshot validation failed")}
 }
+
+func TestHumanDashboardAndEmbeddedCorex(t *testing.T){
+	if !strings.Contains(dashboardHTML,"Open full Corex")||!strings.Contains(dashboardHTML,"Focus, Priorities, Notes, To‑Do, Expense Manager, Trading Journal and Mileage"){
+		t.Fatalf("human Corex navigation is missing")
+	}
+	if strings.Contains(dashboardHTML,"<main class=\"card main\"><h2>Corex records</h2>"){
+		t.Fatalf("raw storage editor is still the main interface")
+	}
+	a:=&app{port:defaultPort,dataDir:t.TempDir(),pairingCode:"123456",seen:map[string]int64{},exit:make(chan struct{},1),state:persistedState{ServerID:"0011223344556677",Peers:map[string]*peer{},Snapshot:"{}"}}
+	request:=httptest.NewRequest(http.MethodGet,"http://127.0.0.1/app",nil);request.RemoteAddr="127.0.0.1:43210"
+	recorder:=httptest.NewRecorder();a.corexApp(recorder,request)
+	if recorder.Code!=http.StatusOK{t.Fatalf("Corex app status %d: %s",recorder.Code,recorder.Body.String())}
+	body:=recorder.Body.String()
+	for _,required:=range []string{"const VERSION='9.13.258'","corex-desktop-bridge-runtime","Connection & backups","MLMNativeNotifications"}{if !strings.Contains(body,required){t.Fatalf("embedded Corex app missing %q",required)}}
+}
+
+func TestSafetyVersionRestore(t *testing.T){
+	a:=&app{port:defaultPort,dataDir:t.TempDir(),pairingCode:"123456",seen:map[string]int64{},exit:make(chan struct{},1),state:persistedState{ServerID:"0011223344556677",Peers:map[string]*peer{},Revision:3,Snapshot:`{"current":"yes"}`,Backups:[]backup{{Revision:2,SavedAt:time.Now().UnixMilli(),Snapshot:`{"restored":"yes"}`}}}}
+	body:=strings.NewReader(`{"revision":2}`);request:=httptest.NewRequest(http.MethodPost,"http://127.0.0.1/dashboard/restore",body);request.RemoteAddr="127.0.0.1:43210"
+	recorder:=httptest.NewRecorder();a.dashboardRestore(recorder,request)
+	if recorder.Code!=http.StatusOK{t.Fatalf("restore status %d: %s",recorder.Code,recorder.Body.String())}
+	if a.state.Snapshot!=`{"restored":"yes"}`||a.state.Revision!=4{t.Fatalf("restore did not create a new protected revision: %#v",a.state)}
+}

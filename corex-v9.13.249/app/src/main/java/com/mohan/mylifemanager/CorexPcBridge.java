@@ -28,11 +28,12 @@ final class CorexPcBridge {
     }
 
     @JavascriptInterface
-    public void pair(String host, int port, String code, String snapshot) {
+    public void pair(String host, int port, String code, String transport, String snapshot) {
         executor.execute(() -> {
             send("working", message("Pairing securely with the PC…"));
             try {
-                JSONObject result = CorexConnectionStore.pair(activity, host, port, code, snapshot);
+                JSONObject result = CorexConnectionStore.pair(
+                        activity, host, port, code, transport, snapshot);
                 result.put("type", "paired");
                 send(result);
                 deliverPending();
@@ -42,6 +43,20 @@ final class CorexPcBridge {
                 sendError(error);
             }
         });
+    }
+
+    @JavascriptInterface
+    public void scanQr() {
+        activity.startQrScan();
+    }
+
+    void sendScanError(String message) {
+        JSONObject event = CorexConnectionStore.state(activity);
+        try {
+            event.put("type", "error");
+            event.put("message", message == null ? "The QR code could not be read." : message);
+        } catch (Exception ignored) {}
+        send(event);
     }
 
     @JavascriptInterface

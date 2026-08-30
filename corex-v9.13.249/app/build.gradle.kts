@@ -10,8 +10,8 @@ android {
         applicationId = "com.mohan.mylifemanager"
         minSdk = 26
         targetSdk = 35
-        versionCode = 913257
-        versionName = "9.13.257-corex-pc"
+        versionCode = 913258
+        versionName = "9.13.258-corex-pc"
     }
 
     buildTypes {
@@ -34,4 +34,5 @@ android {
 dependencies {
     implementation("androidx.core:core:1.13.1")
     implementation("androidx.work:work-runtime:2.9.1")
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
 }

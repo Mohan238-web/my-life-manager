@@ -32,6 +32,7 @@ final class CorexConnectionStore {
     private static final String PORT = "port";
     private static final String SERVER_ID = "server_id";
     private static final String SERVER_NAME = "server_name";
+    private static final String TRANSPORT = "transport";
     private static final String PEER_KEY = "peer_key";
     private static final String REVISION = "revision";
     private static final String SNAPSHOT = "snapshot";
@@ -67,16 +68,20 @@ final class CorexConnectionStore {
             out.put("revision", p.getLong(REVISION, 0));
             out.put("lastSync", p.getLong(LAST_SYNC, 0));
             out.put("lastError", p.getString(LAST_ERROR, ""));
-            out.put("transport", transportForHost(p.getString(HOST, "")));
+            String selectedTransport = p.getString(TRANSPORT, "");
+            out.put("transport", selectedTransport.isEmpty()
+                    ? transportForHost(p.getString(HOST, "")) : selectedTransport);
         } catch (Exception ignored) {}
         return out;
     }
 
     static JSONObject pair(Context context, String rawHost, int rawPort, String rawCode,
-                           String snapshot) throws Exception {
+                           String rawTransport, String snapshot) throws Exception {
         String host = normalizeHost(rawHost);
         int port = rawPort > 0 && rawPort <= 65535 ? rawPort : DEFAULT_PORT;
         String code = rawCode == null ? "" : rawCode.replaceAll("\\D", "");
+        String transport = "USB tethering".equals(rawTransport)
+                ? "USB tethering" : "Wi-Fi / hotspot";
         if (host.isEmpty()) throw new IllegalArgumentException("Enter the PC address shown by Corex Companion.");
         if (code.length() != 6) throw new IllegalArgumentException("Enter the six-digit pairing PIN.");
 
@@ -110,6 +115,7 @@ final class CorexConnectionStore {
                 .putInt(PORT, port)
                 .putString(SERVER_ID, serverId)
                 .putString(SERVER_NAME, serverName)
+                .putString(TRANSPORT, transport)
                 .putString(PEER_KEY, base64(peerKey))
                 .putLong(REVISION, 0)
                 .putString(LAST_ERROR, "");

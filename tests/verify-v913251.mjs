@@ -11,10 +11,10 @@ const partFiles = fs.readdirSync(partsDir).filter(name => name.startsWith('index
 const packed = partFiles.map(name => fs.readFileSync(path.join(partsDir, name), 'utf8')).join('');
 const html = zlib.gunzipSync(Buffer.from(packed, 'base64')).toString('utf8');
 
-assert.match(html, /const VERSION='9\.13\.257'/);
+assert.match(html, /const VERSION='9\.13\.258'/);
 assert.match(html, /corex-cleanup-v913255-shell-runtime/);
 assert.match(html, /corex-v913256-shell-runtime/);
-assert.match(html, /Corex v9\.13\.257/);
+assert.match(html, /Corex v9\.13\.258/);
 assert.match(html, /id:'connection',label:'Connect PC'/);
 assert.match(html, /data-settings-group="advanced"/);
 assert.match(html, /button\.remove\(\)/);
@@ -129,12 +129,16 @@ assert.match(activity, /"corex"\.equalsIgnoreCase\(data\.getScheme\(\)\)/);
 assert.match(activity, /dispatchPendingPcPair\(\)/);
 
 assert.match(html, /corex-pc-connection-v913257-runtime/);
+assert.match(html, /id="pcScanQr"/);
+assert.match(html, /data-pc-transport="USB tethering"/);
+assert.match(html, /native\.scanQr\(\)/);
+assert.match(html, /grid-template-columns:repeat\(5,minmax\(0,1fr\)\)!important/);
 assert.match(html, /<h3>Connect PC<\/h3>/);
 assert.match(html, /id="pcHost"/);
 assert.match(html, /id="pcPin"/);
 assert.match(html, /Connect securely/);
 assert.match(html, /Wi-Fi, hotspot and USB tethering/);
-assert.match(html, /native\.pair\(cleanHost,cleanPort,cleanPin,snapshot\(\)\)/);
+assert.match(html, /native\.pair\(cleanHost,cleanPort,cleanPin,localStorage\.getItem\('corex\.pc\.transport'\)[\s\S]*?snapshot\(\)\)/);
 assert.match(html, /native\.queueSnapshot\(value\)/);
 
 const pcStore = fs.readFileSync(path.join(app, 'src', 'main', 'java', 'com', 'mohan',
@@ -185,8 +189,9 @@ assert.match(watchdog, /notification-watchdog/);
 assert.match(watchdog, /NotificationPublisher\.show/);
 
 const gradle = fs.readFileSync(path.join(app, 'build.gradle.kts'), 'utf8');
-assert.match(gradle, /versionCode = 913257/);
-assert.match(gradle, /versionName = "9\.13\.257-corex-pc"/);
+assert.match(gradle, /versionCode = 913258/);
+assert.match(gradle, /versionName = "9\.13\.258-corex-pc"/);
+assert.match(gradle, /zxing-android-embedded:4\.3\.0/);
 
 const expenseMatch = html.match(/\{"id":"expense","name":"Money","data":"([^"]+)"/);
 assert.ok(expenseMatch, 'Expense Manager payload is embedded');
@@ -225,7 +230,7 @@ compileInlineScripts(mileage, 'Mileage');
 const pcMain = fs.readFileSync(path.join(root, 'pc-companion', 'main.go'), 'utf8');
 const pcQR = fs.readFileSync(path.join(root, 'pc-companion', 'qr.go'), 'utf8');
 const pcDashboard = fs.readFileSync(path.join(root, 'pc-companion', 'dashboard.go'), 'utf8');
-assert.match(pcMain, /const \([\s\S]*companionVersion = "1\.0\.0"/);
+assert.match(pcMain, /const \([\s\S]*companionVersion = "1\.1\.0"/);
 assert.match(pcMain, /pbkdf2SHA256/);
 assert.match(pcMain, /cipher\.NewGCM/);
 assert.match(pcMain, /Crypt|protect\(plain\)/);
@@ -233,7 +238,23 @@ assert.match(pcMain, /\/api\/v1\/sync\/exchange/);
 assert.match(pcMain, /backupLocked\(\)/);
 assert.match(pcQR, /Version 5-L/);
 assert.match(pcQR, /reedSolomonRemainder/);
-assert.match(pcDashboard, /Edit or remove a stored Corex value/);
+assert.match(pcDashboard, /Open full Corex/);
+assert.match(pcDashboard, /Focus, Priorities, Notes, To‑Do, Expense Manager, Trading Journal and Mileage/);
+assert.match(pcDashboard, /Advanced data — technical use only/);
+assert.doesNotMatch(pcDashboard, /<main class="card main"><h2>Corex records<\/h2>/);
 assert.match(pcDashboard, /Start Corex Companion with Windows/);
 
-console.log('Corex v9.13.257 and PC Companion source verification passed');
+const pcDesktopBridge = fs.readFileSync(path.join(root, 'pc-companion', 'pc_bridge.go'), 'utf8');
+assert.match(pcDesktopBridge, /corex-desktop-bridge-runtime/);
+assert.match(pcDesktopBridge, /MLMNativeNotifications/);
+assert.match(pcMain, /\/dashboard\/restore/);
+
+const pcNative = fs.readFileSync(path.join(app, 'src', 'main', 'java', 'com', 'mohan',
+  'mylifemanager', 'CorexPcBridge.java'), 'utf8');
+const mainActivity = fs.readFileSync(path.join(app, 'src', 'main', 'java', 'com', 'mohan',
+  'mylifemanager', 'MainActivity.java'), 'utf8');
+assert.match(pcNative, /public void scanQr\(\)/);
+assert.match(mainActivity, /IntentIntegrator/);
+assert.match(mainActivity, /This is not a Corex PC Companion QR code/);
+
+console.log('Corex v9.13.258 and full PC Companion source verification passed');
