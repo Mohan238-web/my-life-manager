@@ -1,5 +1,6 @@
 using Microsoft.Win32;
 using System.Diagnostics;
+using System.Drawing;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
@@ -17,12 +18,14 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly ToolStripMenuItem _startupItem;
     private readonly System.Windows.Forms.Timer _timer;
     private readonly ControlServer _control;
+    private readonly System.Windows.Forms.Control _invoker = new();
     private readonly string _phoneBridgeExe;
     private bool _allowVisibleWindow;
 
     public TrayApplicationContext()
     {
         _phoneBridgeExe = Path.Combine(AppContext.BaseDirectory, "PhoneBridge-v1.9.exe");
+        _invoker.CreateControl();
 
         TakeOverWindowsStartup();
 
@@ -52,8 +55,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _tray.DoubleClick += (_, _) => OpenPhoneBridge();
 
         _control = new ControlServer(
-            startPhoneBridge: () => BeginInvoke(StartPhoneBridge),
-            stopPhoneBridge: () => BeginInvoke(StopPhoneBridge),
+            startPhoneBridge: () => Post(StartPhoneBridge),
+            stopPhoneBridge: () => Post(StopPhoneBridge),
             isRunning: IsPhoneBridgeRunning,
             isConnected: IsPhoneConnected);
 
@@ -76,16 +79,11 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _tray.ShowBalloonTip(1800, "PhoneBridge", "Running in the Windows hidden-icons area.", ToolTipIcon.Info);
     }
 
-    private void BeginInvoke(Action action)
+    private void Post(Action action)
     {
-        if (SynchronizationContext.Current is not null)
-        {
-            action();
-            return;
-        }
-        var invoker = new System.Windows.Forms.Control();
-        invoker.CreateControl();
-        invoker.BeginInvoke(action);
+        if (_invoker.IsDisposed) return;
+        if (_invoker.InvokeRequired) _invoker.BeginInvoke(action);
+        else action();
     }
 
     private void TakeOverWindowsStartup()
@@ -304,6 +302,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             _timer?.Dispose();
             _control?.Dispose();
             _tray?.Dispose();
+            _invoker?.Dispose();
         }
         base.Dispose(disposing);
     }
