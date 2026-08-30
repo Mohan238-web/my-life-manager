@@ -136,9 +136,9 @@ public final class ReminderOverlayService extends Service {
                         | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT);
         params.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
-        params.width = Math.max(dp(300), getResources().getDisplayMetrics().widthPixels - dp(24));
+        params.width = Math.max(dp(300), getResources().getDisplayMetrics().widthPixels - dp(16));
         params.x = 0;
-        params.y = dp(14);
+        params.y = dp(10);
         try {
             windowManager.addView(overlayView, params);
             String id = currentPayload.optString("id", "");
@@ -165,12 +165,12 @@ public final class ReminderOverlayService extends Service {
         LinearLayout outer = new LinearLayout(this);
         outer.setOrientation(LinearLayout.HORIZONTAL);
         outer.setGravity(Gravity.CENTER_VERTICAL);
-        outer.setPadding(dp(12), dp(12), dp(12), dp(12));
+        outer.setPadding(dp(14), dp(14), dp(14), dp(14));
         LinearLayout.LayoutParams outerMargins = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         outerMargins.setMargins(dp(12), 0, dp(12), 0);
         outer.setLayoutParams(outerMargins);
-        outer.setBackground(roundRect(Color.WHITE, 22));
+        outer.setBackground(roundRect(Color.WHITE, 24));
         outer.setElevation(dp(18));
 
         ImageView icon = new ImageView(this);
@@ -181,20 +181,20 @@ public final class ReminderOverlayService extends Service {
         iconBg.setShape(GradientDrawable.OVAL);
         iconBg.setColor(Color.rgb(7, 26, 146));
         icon.setBackground(iconBg);
-        outer.addView(icon, new LinearLayout.LayoutParams(dp(66), dp(66)));
+        outer.addView(icon, new LinearLayout.LayoutParams(dp(72), dp(72)));
 
         LinearLayout textColumn = new LinearLayout(this);
         textColumn.setOrientation(LinearLayout.VERTICAL);
-        textColumn.setPadding(dp(12), 0, dp(8), 0);
-        TextView eyebrow = text("COREX REMINDER", 11, BLUE, true);
-        TextView title = text(reminderTitle(payload), 19, BLUE, true);
+        textColumn.setPadding(dp(13), 0, dp(9), 0);
+        TextView eyebrow = text("COREX REMINDER", 12, BLUE, true);
+        TextView title = text(reminderTitle(payload), 21, BLUE, true);
         TextView body = text(payload.optString("body", "Open Corex to view this reminder."),
-                14, Color.rgb(28, 32, 35), false);
-        TextView time = text(reminderTime(payload), 12, Color.rgb(99, 104, 109), false);
+                15, Color.rgb(28, 32, 35), false);
+        TextView time = text(reminderTime(payload), 13, Color.rgb(99, 104, 109), false);
         title.setPadding(0, dp(2), 0, 0);
         body.setPadding(0, dp(3), 0, 0);
         time.setPadding(0, dp(4), 0, 0);
-        body.setMaxLines(2);
+        body.setMaxLines(3);
         textColumn.addView(eyebrow);
         textColumn.addView(title);
         textColumn.addView(body);
@@ -207,9 +207,9 @@ public final class ReminderOverlayService extends Service {
         buttons.setGravity(Gravity.CENTER);
         Button dismiss = actionButton("Dismiss", Color.rgb(238, 239, 241), Color.rgb(24, 27, 30));
         Button open = actionButton(openLabel(payload), BLUE, Color.WHITE);
-        LinearLayout.LayoutParams top = new LinearLayout.LayoutParams(dp(112), dp(44));
-        top.setMargins(0, 0, 0, dp(6));
-        LinearLayout.LayoutParams bottom = new LinearLayout.LayoutParams(dp(112), dp(44));
+        LinearLayout.LayoutParams top = new LinearLayout.LayoutParams(dp(120), dp(48));
+        top.setMargins(0, 0, 0, dp(8));
+        LinearLayout.LayoutParams bottom = new LinearLayout.LayoutParams(dp(120), dp(48));
         buttons.addView(dismiss, top);
         buttons.addView(open, bottom);
         outer.addView(buttons);
@@ -223,11 +223,11 @@ public final class ReminderOverlayService extends Service {
         Button button = new Button(this);
         button.setText(label);
         button.setTextColor(textColor);
-        button.setTextSize(14);
+        button.setTextSize(15);
         button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         button.setAllCaps(false);
         button.setPadding(dp(4), 0, dp(4), 0);
-        button.setBackground(roundRect(color, 12));
+        button.setBackground(roundRect(color, 13));
         return button;
     }
 

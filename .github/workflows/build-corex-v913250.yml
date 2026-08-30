@@ -1,8 +1,8 @@
-name: Build Corex v9.13.255 APK
+name: Build Corex v9.13.256 APK
 
 on:
   push:
-    branches: [ corex-v9.13.255 ]
+    branches: [ corex-v9.13.256 ]
   workflow_dispatch:
 
 permissions:
@@ -35,8 +35,9 @@ jobs:
           mkdir -p app/src/main/assets
           cat app/src/main/assets_parts/index.html.gz.b64.part-* | base64 --decode | gzip --decompress > app/src/main/assets/index.html
           grep -q "corex-v913249-runtime" app/src/main/assets/index.html
-          grep -q "const VERSION='9.13.255'" app/src/main/assets/index.html
+          grep -q "const VERSION='9.13.256'" app/src/main/assets/index.html
           grep -q "corex-cleanup-v913255-shell-runtime" app/src/main/assets/index.html
+          grep -q "corex-v913256-shell-runtime" app/src/main/assets/index.html
           grep -q "MLMNativeNotifications" app/src/main/assets/index.html
           python3 - <<'PY'
           import base64, gzip, re
@@ -50,7 +51,8 @@ jobs:
           assert "result.reminderEnabled = !!prior.reminderEnabled" in focus
           assert "Navigation, autosave and temporary UI state must never cancel them" in focus
           assert "title:`Priority ${index+1}`" in focus
-          assert "data-test-priority-reminder" in focus
+          assert "Show bottom reminder now" not in focus
+          assert "corex-v913256-focus-ui" in focus
           assert "await parent.MLMRequestNativeReminder(reminder)" in focus
           assert "Android did not confirm an exact alarm" not in focus
           assert "saved-reminder-fields250" in gzip.decompress(base64.b64decode(re.search(r'\{"id":"notes","name":"Notes","data":"([^"]+)"', source).group(1))).decode()
@@ -90,20 +92,20 @@ jobs:
 
       - name: Rename and verify APK
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk Corex-v9.13.255.apk
-          test -s Corex-v9.13.255.apk
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs Corex-v9.13.255.apk
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging Corex-v9.13.255.apk | grep "package: name='com.mohan.mylifemanager' versionCode='913255' versionName='9.13.255-corex'"
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions Corex-v9.13.255.apk | grep 'android.permission.SYSTEM_ALERT_WINDOW'
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions Corex-v9.13.255.apk | grep 'android.permission.POST_NOTIFICATIONS'
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions Corex-v9.13.255.apk | grep 'android.permission.USE_EXACT_ALARM'
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions Corex-v9.13.255.apk | grep 'android.permission.CAMERA'
+          cp app/build/outputs/apk/debug/app-debug.apk Corex-v9.13.256.apk
+          test -s Corex-v9.13.256.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs Corex-v9.13.256.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging Corex-v9.13.256.apk | grep "package: name='com.mohan.mylifemanager' versionCode='913256' versionName='9.13.256-corex'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions Corex-v9.13.256.apk | grep 'android.permission.SYSTEM_ALERT_WINDOW'
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions Corex-v9.13.256.apk | grep 'android.permission.POST_NOTIFICATIONS'
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions Corex-v9.13.256.apk | grep 'android.permission.USE_EXACT_ALARM'
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions Corex-v9.13.256.apk | grep 'android.permission.CAMERA'
 
       - name: Upload verified APK
         uses: actions/upload-artifact@v4
         with:
-          name: Corex-v9.13.255-APK
-          path: corex-v9.13.249/Corex-v9.13.255.apk
+          name: Corex-v9.13.256-APK
+          path: corex-v9.13.249/Corex-v9.13.256.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -125,6 +127,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f Corex-v9.13.255.apk
-          git commit -m "Attach verified Corex v9.13.255 APK"
-          git push origin HEAD:corex-v9.13.255
+          git add -f Corex-v9.13.256.apk
+          git commit -m "Attach verified Corex v9.13.256 APK"
+          git push origin HEAD:corex-v9.13.256

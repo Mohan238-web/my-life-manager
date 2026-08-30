@@ -11,13 +11,20 @@ const partFiles = fs.readdirSync(partsDir).filter(name => name.startsWith('index
 const packed = partFiles.map(name => fs.readFileSync(path.join(partsDir, name), 'utf8')).join('');
 const html = zlib.gunzipSync(Buffer.from(packed, 'base64')).toString('utf8');
 
-assert.match(html, /const VERSION='9\.13\.255'/);
+assert.match(html, /const VERSION='9\.13\.257'/);
 assert.match(html, /corex-cleanup-v913255-shell-runtime/);
-assert.match(html, /Corex v9\.13\.255/);
+assert.match(html, /corex-v913256-shell-runtime/);
+assert.match(html, /Corex v9\.13\.257/);
+assert.match(html, /id:'connection',label:'Connect PC'/);
+assert.match(html, /data-settings-group="advanced"/);
+assert.match(html, /button\.remove\(\)/);
+assert.match(html, /About & reset'[\s\S]*?data-corex-retired/);
+assert.match(html, /async function restoreSnapshot\(\)/,
+  'hiding Recovery navigation must not delete recovery data support');
 assert.doesNotMatch(html, />My Life Manager</);
 assert.doesNotMatch(html, /Shared from My Life Manager/);
 assert.doesNotMatch(html, /Open My Life Manager to review this reminder/);
-assert.match(html, /label:'Recovery',title:'Recovery',heads:\['Versioned data safety'\]/);
+assert.match(html, /label:'Connect PC',title:'Connect PC',heads:\['Connect PC'\]/);
 assert.match(html, /label:'About',title:'About Corex',heads:\['About & reset'\]/);
 assert.match(html, /priority-bottom-overlay-delivery/);
 assert.match(html, /Show Priority reminder now/);
@@ -46,7 +53,9 @@ assert.match(focus, /title:`Priority \$\{index\+1\}`/);
 assert.match(focus, /source:'focus-priority'/);
 assert.match(focus, /priorityIndex:index/);
 assert.match(focus, /pendingPriorityReminders/);
-assert.match(focus, /data-test-priority-reminder/);
+assert.doesNotMatch(focus, /Show bottom reminder now/);
+assert.match(focus, /corex-v913256-focus-ui/);
+assert.match(focus, /\.mlm-habit-fail-form textarea\{[\s\S]*?height:64px!important/);
 assert.doesNotMatch(focus, /Android did not confirm an exact alarm/,
   'the WebView timeout must not turn off a natively stored reminder');
 assert.match(focus, /await parent\.MLMRequestNativeReminder\(reminder\)/);
@@ -84,6 +93,10 @@ const overlay = fs.readFileSync(path.join(app, 'src', 'main', 'java', 'com', 'mo
 assert.match(overlay, /Gravity\.BOTTOM/);
 assert.match(overlay, /setOrientation\(LinearLayout\.HORIZONTAL\)/);
 assert.match(overlay, /COREX REMINDER/);
+assert.match(overlay, /widthPixels - dp\(16\)/);
+assert.match(overlay, /new LinearLayout\.LayoutParams\(dp\(72\), dp\(72\)\)/);
+assert.match(overlay, /text\(reminderTitle\(payload\), 21, BLUE, true\)/);
+assert.match(overlay, /new LinearLayout\.LayoutParams\(dp\(120\), dp\(48\)\)/);
 assert.match(overlay, /return "Priority " \+ \(index \+ 1\)/);
 assert.match(overlay, /reminderTime\(payload\)/);
 assert.match(overlay, /actionButton\("Dismiss"/);
@@ -111,6 +124,32 @@ const activity = fs.readFileSync(path.join(app, 'src', 'main', 'java', 'com', 'm
 assert.match(activity, /pendingReminderPermissionStep/);
 assert.match(activity, /openOverlayPermissionForScheduledReminder\(\)/);
 assert.match(activity, /ReminderScheduler\.reconcileStored\(this\)/);
+assert.match(activity, /addJavascriptInterface\(pcBridge, "CorexPcNative"\)/);
+assert.match(activity, /"corex"\.equalsIgnoreCase\(data\.getScheme\(\)\)/);
+assert.match(activity, /dispatchPendingPcPair\(\)/);
+
+assert.match(html, /corex-pc-connection-v913257-runtime/);
+assert.match(html, /<h3>Connect PC<\/h3>/);
+assert.match(html, /id="pcHost"/);
+assert.match(html, /id="pcPin"/);
+assert.match(html, /Connect securely/);
+assert.match(html, /Wi-Fi, hotspot and USB tethering/);
+assert.match(html, /native\.pair\(cleanHost,cleanPort,cleanPin,snapshot\(\)\)/);
+assert.match(html, /native\.queueSnapshot\(value\)/);
+
+const pcStore = fs.readFileSync(path.join(app, 'src', 'main', 'java', 'com', 'mohan',
+  'mylifemanager', 'CorexConnectionStore.java'), 'utf8');
+assert.match(pcStore, /PBKDF2WithHmacSHA256/);
+assert.match(pcStore, /AES\/GCM\/NoPadding/);
+assert.match(pcStore, /120000/);
+assert.match(pcStore, /\/api\/v1\/sync\/exchange/);
+assert.match(pcStore, /PENDING_SNAPSHOT/);
+
+const pcBridge = fs.readFileSync(path.join(app, 'src', 'main', 'java', 'com', 'mohan',
+  'mylifemanager', 'CorexPcBridge.java'), 'utf8');
+assert.match(pcBridge, /scheduleBackgroundSync/);
+assert.match(pcBridge, /NetworkType\.CONNECTED/);
+assert.match(pcBridge, /CorexSyncWorker/);
 
 const scheduler = fs.readFileSync(path.join(app, 'src', 'main', 'java', 'com', 'mohan',
   'mylifemanager', 'ReminderScheduler.java'), 'utf8');
@@ -127,12 +166,14 @@ assert.doesNotMatch(optimisticRemove, /ReminderStore\.remove\(context, id\)/,
 
 const manifest = fs.readFileSync(path.join(app, 'src', 'main', 'AndroidManifest.xml'), 'utf8');
 for (const permission of ['POST_NOTIFICATIONS', 'USE_EXACT_ALARM', 'SYSTEM_ALERT_WINDOW',
-  'FOREGROUND_SERVICE', 'FOREGROUND_SERVICE_SPECIAL_USE', 'RECEIVE_BOOT_COMPLETED']) {
+  'FOREGROUND_SERVICE', 'FOREGROUND_SERVICE_SPECIAL_USE', 'RECEIVE_BOOT_COMPLETED',
+  'INTERNET', 'ACCESS_NETWORK_STATE']) {
   assert.match(manifest, new RegExp(`android\\.permission\\.${permission}`));
 }
 assert.match(manifest, /ReminderOverlayService/);
 assert.match(manifest, /ReminderDeliveryWatchdogReceiver/);
 assert.match(manifest, /BootReceiver/);
+assert.match(manifest, /android:scheme="corex" android:host="pair"/);
 
 const alarmReceiver = fs.readFileSync(path.join(app, 'src', 'main', 'java', 'com', 'mohan',
   'mylifemanager', 'NotificationAlarmReceiver.java'), 'utf8');
@@ -144,8 +185,8 @@ assert.match(watchdog, /notification-watchdog/);
 assert.match(watchdog, /NotificationPublisher\.show/);
 
 const gradle = fs.readFileSync(path.join(app, 'build.gradle.kts'), 'utf8');
-assert.match(gradle, /versionCode = 913255/);
-assert.match(gradle, /versionName = "9\.13\.255-corex"/);
+assert.match(gradle, /versionCode = 913257/);
+assert.match(gradle, /versionName = "9\.13\.257-corex-pc"/);
 
 const expenseMatch = html.match(/\{"id":"expense","name":"Money","data":"([^"]+)"/);
 assert.ok(expenseMatch, 'Expense Manager payload is embedded');
@@ -157,6 +198,13 @@ const notesMatch = html.match(/\{"id":"notes","name":"Notes","data":"([^"]+)"/);
 assert.ok(notesMatch, 'Notes payload is embedded');
 const notes = zlib.gunzipSync(Buffer.from(notesMatch[1], 'base64')).toString('utf8');
 assert.match(notes, /corex-cleanup-v913255-notes/);
+assert.match(notes, /corex-v913256-notes-ui/);
+assert.match(notes, /#toolsDialog \.dialog-scroll\.tools-grid/);
+assert.match(notes, /grid-auto-rows:48px!important/);
+assert.match(notes, /height:48px!important/);
+assert.match(notes, /class:'reminder-time'/);
+assert.match(notes, /data-priority="\$\{escTodo\(t\.priority\)\}"/);
+assert.match(notes, /note-card\[data-priority="Critical"\],[\s\S]*todo-card\[data-priority="Critical"\]/);
 assert.match(notes, /\[data-saved-action166="move"\]/);
 assert.match(notes, /Search note titles, text, actions and categories/);
 
@@ -174,4 +222,18 @@ compileInlineScripts(trading, 'Trading Journal');
 compileInlineScripts(notes, 'Notes');
 compileInlineScripts(mileage, 'Mileage');
 
-console.log('Corex v9.13.255 verification passed');
+const pcMain = fs.readFileSync(path.join(root, 'pc-companion', 'main.go'), 'utf8');
+const pcQR = fs.readFileSync(path.join(root, 'pc-companion', 'qr.go'), 'utf8');
+const pcDashboard = fs.readFileSync(path.join(root, 'pc-companion', 'dashboard.go'), 'utf8');
+assert.match(pcMain, /const \([\s\S]*companionVersion = "1\.0\.0"/);
+assert.match(pcMain, /pbkdf2SHA256/);
+assert.match(pcMain, /cipher\.NewGCM/);
+assert.match(pcMain, /Crypt|protect\(plain\)/);
+assert.match(pcMain, /\/api\/v1\/sync\/exchange/);
+assert.match(pcMain, /backupLocked\(\)/);
+assert.match(pcQR, /Version 5-L/);
+assert.match(pcQR, /reedSolomonRemainder/);
+assert.match(pcDashboard, /Edit or remove a stored Corex value/);
+assert.match(pcDashboard, /Start Corex Companion with Windows/);
+
+console.log('Corex v9.13.257 and PC Companion source verification passed');

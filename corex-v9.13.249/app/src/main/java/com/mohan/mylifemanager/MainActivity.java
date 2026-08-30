@@ -48,10 +48,12 @@ public final class MainActivity extends Activity {
     private Uri cameraOutputUri;
     private File cameraOutputFile;
     private String pendingOpenPayload;
+    private String pendingPcPairPayload;
     private boolean pageReady;
     private boolean appReady;
     private boolean pendingCameraLaunch;
     private int pendingReminderPermissionStep;
+    private CorexPcBridge pcBridge;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -92,11 +94,14 @@ public final class MainActivity extends Activity {
         WebView.setWebContentsDebuggingEnabled(debuggable);
         webView.addJavascriptInterface(new NativeNotificationsBridge(this), "MLMNativeNotificationsNative");
         webView.addJavascriptInterface(new NativeAppBridge(this), "MLMNativeAppNative");
+        pcBridge = new CorexPcBridge(this);
+        webView.addJavascriptInterface(pcBridge, "CorexPcNative");
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
                 pageReady = true;
                 dispatchPendingOpen();
+                dispatchPendingPcPair();
                 deliverDismissedIds();
             }
         });
@@ -195,6 +200,20 @@ public final class MainActivity extends Activity {
 
     private void handleIntent(Intent intent) {
         if (intent == null) return;
+        Uri data = intent.getData();
+        if (data != null && "corex".equalsIgnoreCase(data.getScheme())
+                && "pair".equalsIgnoreCase(data.getHost())) {
+            try {
+                JSONObject pair = new JSONObject();
+                pair.put("host", data.getQueryParameter("host"));
+                pair.put("port", data.getQueryParameter("port"));
+                pair.put("code", data.getQueryParameter("code"));
+                pair.put("serverId", data.getQueryParameter("server"));
+                pendingPcPairPayload = pair.toString();
+                dispatchPendingPcPair();
+            } catch (Exception ignored) {}
+            intent.setData(null);
+        }
         String payload = intent.getStringExtra(ReminderScheduler.EXTRA_PAYLOAD);
         if (payload == null || payload.isEmpty()) return;
         try {
@@ -214,6 +233,19 @@ public final class MainActivity extends Activity {
         pendingOpenPayload = null;
         evaluate("(function(){try{var p=JSON.parse(" + JSONObject.quote(payload)
                 + ");if(window.MLMOpenReminderTarget)window.MLMOpenReminderTarget(p);}catch(e){}})();");
+    }
+
+    private void dispatchPendingPcPair() {
+        if (!pageReady || pendingPcPairPayload == null || pendingPcPairPayload.isEmpty()) return;
+        String payload = pendingPcPairPayload;
+        pendingPcPairPayload = null;
+        evaluate("(function(){try{var p=JSON.parse(" + JSONObject.quote(payload)
+                + ");if(window.CorexPcConnection)window.CorexPcConnection.onPairLink(p);}catch(e){}})();");
+    }
+
+    void dispatchPcEvent(String payload) {
+        evaluate("(function(){try{var p=JSON.parse(" + JSONObject.quote(payload == null ? "{}" : payload)
+                + ");if(window.CorexPcConnection)window.CorexPcConnection.onNativeEvent(p);}catch(e){}})();");
     }
 
     void mirrorScheduledReminder(String payload) {
@@ -252,6 +284,11 @@ public final class MainActivity extends Activity {
             if (appReady) return;
             appReady = true;
             if (webView != null) webView.setBackgroundColor(Color.TRANSPARENT);
+            dispatchPendingPcPair();
+            if (pcBridge != null) {
+                pcBridge.sendState();
+                pcBridge.deliverPending();
+            }
             requestNotificationPermissionOnce();
         });
     }
@@ -394,6 +431,10 @@ public final class MainActivity extends Activity {
         if (pendingReminderPermissionStep != 0) continueScheduledReminderPermissionSetup();
         else if (appReady) requestNotificationPermissionOnce();
         if (pageReady) deliverDismissedIds();
+        if (pageReady && pcBridge != null) {
+            pcBridge.sendState();
+            pcBridge.deliverPending();
+        }
     }
 
     @Override
@@ -434,6 +475,10 @@ public final class MainActivity extends Activity {
             fileCallback = null;
         }
         clearCameraOutput(true);
+        if (pcBridge != null) {
+            pcBridge.shutdown();
+            pcBridge = null;
+        }
         if (webView != null) {
             ((ViewGroup) webView.getParent()).removeView(webView);
             webView.removeAllViews();

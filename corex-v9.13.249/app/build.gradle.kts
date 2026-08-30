@@ -10,8 +10,8 @@ android {
         applicationId = "com.mohan.mylifemanager"
         minSdk = 26
         targetSdk = 35
-        versionCode = 913255
-        versionName = "9.13.255-corex"
+        versionCode = 913257
+        versionName = "9.13.257-corex-pc"
     }
 
     buildTypes {
