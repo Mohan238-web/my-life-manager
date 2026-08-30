@@ -1,0 +1,58 @@
+name: PhoneBridge v2.2 PC Build
+
+on:
+  push:
+    branches: [phonebridge-v2-build]
+    paths:
+      - 'phonebridge-v2.2-pc/**'
+      - '.github/workflows/phonebridge-v2.2-pc-build.yml'
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Create approved PhoneBridge icon
+        shell: pwsh
+        run: |
+          python -m pip install --quiet pillow
+          @'
+          from PIL import Image, ImageDraw
+          S=256
+          im=Image.new("RGBA",(S,S),(5,16,38,255))
+          d=ImageDraw.Draw(im)
+          d.rounded_rectangle((5,5,251,251),radius=48,fill=(5,16,38,255),outline=(14,42,84,255),width=5)
+          cyan=(25,231,232,255)
+          blue=(25,143,255,255)
+          white=(240,248,255,255)
+          # phone
+          d.rounded_rectangle((38,67,91,190),radius=12,outline=cyan,width=10)
+          d.rounded_rectangle((55,170,74,176),radius=3,fill=cyan)
+          # monitor
+          d.rounded_rectangle((129,70,220,158),radius=12,outline=blue,width=10)
+          d.line((174,159,174,184),fill=blue,width=10)
+          d.rounded_rectangle((146,181,202,191),radius=5,fill=blue)
+          # bridge / connection
+          pts=[(82,124),(99,124),(111,113),(121,113),(133,124),(147,124)]
+          d.line(pts,fill=white,width=9,joint="curve")
+          d.line((139,115,148,124,139,133),fill=white,width=7,joint="curve")
+          im.save("phonebridge-v2.2-pc/phonebridge.ico",sizes=[(16,16),(24,24),(32,32),(48,48),(64,64),(128,128),(256,256)])
+          '@ | Set-Content -Path make_icon.py
+          python make_icon.py
+      - name: Publish single-file PhoneBridge host
+        shell: pwsh
+        run: |
+          dotnet publish phonebridge-v2.2-pc/PhoneBridge.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o out
+          Rename-Item out/PhoneBridge-v2.2.exe PhoneBridge-v2.2-Host.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhoneBridge-v2.2-PC-Host
+          path: out/PhoneBridge-v2.2-Host.exe
+          if-no-files-found: error
