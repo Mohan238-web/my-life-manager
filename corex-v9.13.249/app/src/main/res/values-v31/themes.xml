@@ -11,7 +11,7 @@
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar">false</item>
         <item name="android:windowSplashScreenBackground">@color/app_start_surface</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/corex_icon_v249_art_webp</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/corex_icon_v259_art</item>
         <item name="android:windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
     </style>
 </resources>
