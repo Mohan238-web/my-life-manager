@@ -11,7 +11,14 @@ const partFiles = fs.readdirSync(partsDir).filter(name => name.startsWith('index
 const packed = partFiles.map(name => fs.readFileSync(path.join(partsDir, name), 'utf8')).join('');
 const html = zlib.gunzipSync(Buffer.from(packed, 'base64')).toString('utf8');
 
-assert.match(html, /const VERSION='9\.13\.254'/);
+assert.match(html, /const VERSION='9\.13\.255'/);
+assert.match(html, /corex-cleanup-v913255-shell-runtime/);
+assert.match(html, /Corex v9\.13\.255/);
+assert.doesNotMatch(html, />My Life Manager</);
+assert.doesNotMatch(html, /Shared from My Life Manager/);
+assert.doesNotMatch(html, /Open My Life Manager to review this reminder/);
+assert.match(html, /label:'Recovery',title:'Recovery',heads:\['Versioned data safety'\]/);
+assert.match(html, /label:'About',title:'About Corex',heads:\['About & reset'\]/);
 assert.match(html, /priority-bottom-overlay-delivery/);
 assert.match(html, /Show Priority reminder now/);
 assert.match(html, /memory:'keep'/);
@@ -45,6 +52,8 @@ assert.doesNotMatch(focus, /Android did not confirm an exact alarm/,
 assert.match(focus, /await parent\.MLMRequestNativeReminder\(reminder\)/);
 assert.match(focus, /result\?\.ok&&String\(result\.delivery\|\|''\)\.startsWith\('native'\)/);
 assert.match(focus, /#habitPracticeApp #habitReminderBar,\.hp-reminder-bar\{display:none!important\}/);
+assert.match(focus, /corex-cleanup-v913255-focus-runtime/);
+assert.doesNotMatch(focus, /Managed by My Life Manager/);
 
 const scheduleBlock = focus.match(/function scheduleTodayAlarms\(\)\{([\s\S]*?)\n\}/)?.[1] || '';
 assert.ok(scheduleBlock, 'Priority scheduling function exists');
@@ -135,7 +144,34 @@ assert.match(watchdog, /notification-watchdog/);
 assert.match(watchdog, /NotificationPublisher\.show/);
 
 const gradle = fs.readFileSync(path.join(app, 'build.gradle.kts'), 'utf8');
-assert.match(gradle, /versionCode = 913254/);
-assert.match(gradle, /versionName = "9\.13\.254-corex"/);
+assert.match(gradle, /versionCode = 913255/);
+assert.match(gradle, /versionName = "9\.13\.255-corex"/);
 
-console.log('Corex v9.13.254 verification passed');
+const expenseMatch = html.match(/\{"id":"expense","name":"Money","data":"([^"]+)"/);
+assert.ok(expenseMatch, 'Expense Manager payload is embedded');
+const expense = zlib.gunzipSync(Buffer.from(expenseMatch[1], 'base64')).toString('utf8');
+assert.match(expense, /corex-cleanup-v913255-expense/);
+assert.match(expense, /#driveSettingsModal,#pcSettingsModal,#pinSettingsModal/);
+
+const notesMatch = html.match(/\{"id":"notes","name":"Notes","data":"([^"]+)"/);
+assert.ok(notesMatch, 'Notes payload is embedded');
+const notes = zlib.gunzipSync(Buffer.from(notesMatch[1], 'base64')).toString('utf8');
+assert.match(notes, /corex-cleanup-v913255-notes/);
+assert.match(notes, /\[data-saved-action166="move"\]/);
+assert.match(notes, /Search note titles, text, actions and categories/);
+
+const tradingMatch = html.match(/\{"id":"trading","name":"Trading Journal","data":"([^"]+)"/);
+assert.ok(tradingMatch, 'Trading Journal payload is embedded');
+const trading = zlib.gunzipSync(Buffer.from(tradingMatch[1], 'base64')).toString('utf8');
+assert.match(trading, /Checking app storage/);
+
+const mileageMatch = html.match(/\{"id":"mileage","name":"Mileage","data":"([^"]+)"/);
+assert.ok(mileageMatch, 'Mileage payload is embedded');
+const mileage = zlib.gunzipSync(Buffer.from(mileageMatch[1], 'base64')).toString('utf8');
+
+compileInlineScripts(expense, 'Money');
+compileInlineScripts(trading, 'Trading Journal');
+compileInlineScripts(notes, 'Notes');
+compileInlineScripts(mileage, 'Mileage');
+
+console.log('Corex v9.13.255 verification passed');
