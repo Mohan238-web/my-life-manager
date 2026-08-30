@@ -1,0 +1,32 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.phonebridge.quicktile'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.phonebridge.quicktile'
+        minSdk 26
+        targetSdk 35
+        versionCode 20
+        versionName '2.0.0'
+    }
+
+    signingConfigs {
+        release {
+            storeFile file('quicktile.jks')
+            storePassword 'PhoneBridge2026'
+            keyAlias 'phonebridge'
+            keyPassword 'PhoneBridge2026'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+}
