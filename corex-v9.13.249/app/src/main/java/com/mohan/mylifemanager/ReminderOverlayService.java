@@ -163,8 +163,8 @@ public final class ReminderOverlayService extends Service {
 
     private View buildCard(JSONObject payload) {
         LinearLayout outer = new LinearLayout(this);
-        outer.setOrientation(LinearLayout.HORIZONTAL);
-        outer.setGravity(Gravity.CENTER_VERTICAL);
+        outer.setOrientation(LinearLayout.VERTICAL);
+        outer.setGravity(Gravity.CENTER_HORIZONTAL);
         outer.setPadding(dp(14), dp(14), dp(14), dp(14));
         LinearLayout.LayoutParams outerMargins = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -172,6 +172,13 @@ public final class ReminderOverlayService extends Service {
         outer.setLayoutParams(outerMargins);
         outer.setBackground(roundRect(Color.WHITE, 24));
         outer.setElevation(dp(18));
+
+        LinearLayout topRow = new LinearLayout(this);
+        topRow.setOrientation(LinearLayout.HORIZONTAL);
+        topRow.setGravity(Gravity.CENTER_VERTICAL);
+        outer.addView(topRow, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
 
         ImageView icon = new ImageView(this);
         icon.setImageResource(R.drawable.corex_icon_v249_art_webp);
@@ -181,7 +188,7 @@ public final class ReminderOverlayService extends Service {
         iconBg.setShape(GradientDrawable.OVAL);
         iconBg.setColor(Color.rgb(7, 26, 146));
         icon.setBackground(iconBg);
-        outer.addView(icon, new LinearLayout.LayoutParams(dp(72), dp(72)));
+        topRow.addView(icon, new LinearLayout.LayoutParams(dp(72), dp(72)));
 
         LinearLayout textColumn = new LinearLayout(this);
         textColumn.setOrientation(LinearLayout.VERTICAL);
@@ -199,20 +206,24 @@ public final class ReminderOverlayService extends Service {
         textColumn.addView(title);
         textColumn.addView(body);
         textColumn.addView(time);
-        outer.addView(textColumn, new LinearLayout.LayoutParams(0,
+        topRow.addView(textColumn, new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
         LinearLayout buttons = new LinearLayout(this);
-        buttons.setOrientation(LinearLayout.VERTICAL);
+        buttons.setOrientation(LinearLayout.HORIZONTAL);
         buttons.setGravity(Gravity.CENTER);
         Button dismiss = actionButton("Dismiss", Color.rgb(238, 239, 241), Color.rgb(24, 27, 30));
         Button open = actionButton(openLabel(payload), BLUE, Color.WHITE);
-        LinearLayout.LayoutParams top = new LinearLayout.LayoutParams(dp(120), dp(48));
-        top.setMargins(0, 0, 0, dp(8));
-        LinearLayout.LayoutParams bottom = new LinearLayout.LayoutParams(dp(120), dp(48));
-        buttons.addView(dismiss, top);
-        buttons.addView(open, bottom);
-        outer.addView(buttons);
+        LinearLayout.LayoutParams dismissParams = new LinearLayout.LayoutParams(0, dp(48), 1f);
+        dismissParams.setMargins(0, 0, dp(5), 0);
+        LinearLayout.LayoutParams openParams = new LinearLayout.LayoutParams(0, dp(48), 1f);
+        openParams.setMargins(dp(5), 0, 0, 0);
+        buttons.addView(dismiss, dismissParams);
+        buttons.addView(open, openParams);
+        LinearLayout.LayoutParams buttonRow = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        buttonRow.setMargins(0, dp(12), 0, 0);
+        outer.addView(buttons, buttonRow);
 
         dismiss.setOnClickListener(view -> finishCurrent(false));
         open.setOnClickListener(view -> finishCurrent(true));
