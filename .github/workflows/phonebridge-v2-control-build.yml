@@ -1,0 +1,62 @@
+name: PhoneBridge v2 Control Build
+
+on:
+  push:
+    branches: [phonebridge-v2-build]
+    paths:
+      - 'phonebridge-v2-control/**'
+      - '.github/workflows/phonebridge-v2-control-build.yml'
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Publish PhoneBridge tray controller
+        shell: pwsh
+        run: |
+          dotnet publish phonebridge-v2-control/windows/PhoneBridge.Tray.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o out/windows
+          Rename-Item out/windows/PhoneBridge-Tray.exe PhoneBridge-v2-Tray.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhoneBridge-v2-Windows-Tray
+          path: out/windows/PhoneBridge-v2-Tray.exe
+          if-no-files-found: error
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK 35
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Create APK signing key
+        working-directory: phonebridge-v2-control/android/app
+        run: |
+          keytool -genkeypair -v -keystore quicktile.jks -storepass PhoneBridge2026 -alias phonebridge -keypass PhoneBridge2026 -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=PhoneBridge Quick Tile, OU=Personal, O=PhoneBridge, L=Local, ST=Local, C=IN"
+      - name: Build signed Quick Toggle APK
+        working-directory: phonebridge-v2-control/android
+        run: gradle :app:assembleRelease --stacktrace
+      - name: Verify APK signature
+        run: |
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose phonebridge-v2-control/android/app/build/outputs/apk/release/app-release.apk
+      - name: Rename APK
+        run: cp phonebridge-v2-control/android/app/build/outputs/apk/release/app-release.apk PhoneBridge-v2-Quick-Toggle.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhoneBridge-v2-Android-Quick-Toggle
+          path: PhoneBridge-v2-Quick-Toggle.apk
+          if-no-files-found: error
