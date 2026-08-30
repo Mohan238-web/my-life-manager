@@ -67,7 +67,14 @@ func TestHumanDashboardAndEmbeddedCorex(t *testing.T){
 	recorder:=httptest.NewRecorder();a.corexApp(recorder,request)
 	if recorder.Code!=http.StatusOK{t.Fatalf("Corex app status %d: %s",recorder.Code,recorder.Body.String())}
 	body:=recorder.Body.String()
-	for _,required:=range []string{"const VERSION='9.13.258'","corex-desktop-bridge-runtime","Connection & backups","MLMNativeNotifications"}{if !strings.Contains(body,required){t.Fatalf("embedded Corex app missing %q",required)}}
+	for _, required := range []string{"const VERSION='9.13.259'", "corex-desktop-bridge-runtime", "Open Companion control centre", "MLMNativeNotifications"} {
+		if !strings.Contains(body, required) {
+			t.Fatalf("embedded Corex app missing %q", required)
+		}
+	}
+	if strings.Contains(pcBridgeScript, "corexPcDesktopBar") || strings.Contains(pcBridgeScript, "location.reload()") {
+		t.Fatalf("desktop bridge must not cover the workspace or reload an active tool")
+	}
 }
 
 func TestSafetyVersionRestore(t *testing.T){
