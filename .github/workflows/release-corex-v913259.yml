@@ -1,0 +1,52 @@
+name: Publish Corex v9.13.259 verified downloads
+
+on:
+  push:
+    branches: [ corex-release-v9.13.259 ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reconstruct verified APK and HTML
+        run: |
+          cat release-assets/Corex-v9.13.259.apk.b64.part-* | base64 --decode > Corex-v9.13.259.apk
+          cat corex-v9.13.249/app/src/main/assets_parts/index.html.gz.b64.part-* | base64 --decode | gzip --decompress > Corex-v9.13.259.html
+
+      - name: Download verified Windows build and APK verifier
+        run: |
+          gh run download 33320058193 --repo "$GITHUB_REPOSITORY" --name Corex-PC-Companion-v1.1.1-Windows --dir downloaded-windows
+          gh run download 33320058193 --repo "$GITHUB_REPOSITORY" --name Corex-apksigner-tool-v913259 --dir downloaded-signer
+          cp downloaded-windows/Corex-PC-Companion-v1.1.1.exe .
+
+      - name: Verify every release file
+        run: |
+          echo '9efa661407ef7f09dd8b36f74203689261082e576e437a4549de2094b408d406  Corex-v9.13.259.apk' | sha256sum --check --strict
+          echo '4fed1e85081da999f768e52fb3d51def76f16649206dce2f8aba09e8e2cea23f  Corex-PC-Companion-v1.1.1.exe' | sha256sum --check --strict
+          echo 'a4223fdfcaf9dbed00275f506c4804a34ca8cbfb3cec5473822f5cf8a93d4253  Corex-v9.13.259.html' | sha256sum --check --strict
+          test "$(xxd -p -l 2 Corex-PC-Companion-v1.1.1.exe)" = '4d5a'
+          unzip -t Corex-v9.13.259.apk
+          unzip -p Corex-v9.13.259.apk assets/index.html > packaged.html
+          cmp Corex-v9.13.259.html packaged.html
+          java -jar downloaded-signer/Corex-apksigner.jar verify --verbose --print-certs Corex-v9.13.259.apk | tee apk-verification.txt
+          grep -qi 'certificate SHA-256 digest: 65462589fb33dbb2173b556e4130c0dc6430955007ce99a97435fe7e63992a04' apk-verification.txt
+
+      - name: Publish permanent GitHub Release
+        run: |
+          gh release create corex-v9.13.259 \
+            Corex-v9.13.259.apk \
+            Corex-PC-Companion-v1.1.1.exe \
+            Corex-v9.13.259.html \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title 'Corex v9.13.259' \
+            --notes 'Verified Corex Android app, matching HTML, and Windows PC Companion v1.1.1.'
