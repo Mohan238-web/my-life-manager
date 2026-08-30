@@ -16,7 +16,7 @@ internal sealed class PhoneBridgeContext : ApplicationContext
     private const string RunValue = "PhoneBridge";
     private static readonly byte[] PayloadMarker = new byte[]
         { 0x50,0x42,0x32,0x32,0x43,0x4F,0x52,0x45,0x50,0x41,0x59,0x4C,0x4F,0x41,0x44,0x21 }; // PB22COREPAYLOAD!
-    private const string CoreSha256 = "f383cc27d02888e12a363aff15052507056231f3ca30db01d84a49779f02eab1";
+    private const string CoreSha256 = "de76ba7529b1b9d169c740b3391eebbdd57754e89c6473f1f8906d866f7ecd2a";
 
     private readonly string _installDir;
     private readonly string _installedExe;
