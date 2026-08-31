@@ -1,0 +1,78 @@
+name: Build Corex v9.13.261 APK
+
+on:
+  push:
+    branches: [ corex-settings-v9.13.261 ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: corex-v9.13.249
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: Restore the approved Corex interface
+        run: |
+          mkdir -p app/src/main/assets
+          cat app/src/main/assets_parts/index.html.gz.b64.part-* | tr -d '\r\n' | base64 --decode | gzip --decompress > app/src/main/assets/index.html
+          grep -q "const VERSION='9.13.261'" app/src/main/assets/index.html
+          grep -q 'corex-approved-settings-v913261-runtime' app/src/main/assets/index.html
+          grep -q "button.closest?.('#settingsGroupNav')" app/src/main/assets/index.html
+      - name: Run complete Corex source regressions
+        working-directory: .
+        run: node tests/verify-v913251.mjs
+      - name: Verify the rendered Settings tabs
+        working-directory: .
+        run: |
+          npm install --no-save --no-package-lock playwright@1.55.0
+          npx playwright install --with-deps chromium
+          node tests/verify-settings-ui.mjs
+      - name: Prepare the approved launcher icon
+        run: |
+          base64 --decode app/src/main/res/drawable-nodpi/corex_icon_v260_art.webp.b64 > app/src/main/res/drawable-nodpi/corex_icon_v260_art.webp
+          rm -f app/src/main/res/drawable-nodpi/corex_icon_v259_art.webp.b64
+          rm app/src/main/res/drawable-nodpi/corex_icon_v260_art.webp.b64
+      - name: Compile Android app without an emulator
+        run: gradle --no-daemon --stacktrace :app:assembleDebug
+      - name: Verify APK identity and packaged components
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Corex-v9.13.261-unsigned.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose Corex-v9.13.261-unsigned.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging Corex-v9.13.261-unsigned.apk | grep "package: name='com.mohan.mylifemanager' versionCode='913261' versionName='9.13.261-corex-pc'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions Corex-v9.13.261-unsigned.apk | grep 'android.permission.CAMERA'
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions Corex-v9.13.261-unsigned.apk | grep 'android.permission.INTERNET'
+          unzip -p Corex-v9.13.261-unsigned.apk assets/index.html | cmp - app/src/main/assets/index.html
+          unzip -l Corex-v9.13.261-unsigned.apk | grep 'corex_icon_v260_art'
+          unzip -l Corex-v9.13.261-unsigned.apk | grep 'corex_icon_v249_art_webp'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Corex-v9.13.261-unsigned-APK
+          path: corex-v9.13.249/Corex-v9.13.261-unsigned.apk
+          if-no-files-found: error
+          retention-days: 30
+      - name: Prepare Android signing verifier
+        run: |
+          APKSIGNER_JAR=$(find "$ANDROID_HOME/build-tools" -path '*/lib/apksigner.jar' | sort -V | tail -1)
+          test -f "$APKSIGNER_JAR"
+          cp "$APKSIGNER_JAR" Corex-apksigner.jar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Corex-apksigner-tool-v913261
+          path: corex-v9.13.249/Corex-apksigner.jar
+          if-no-files-found: error
+          retention-days: 1

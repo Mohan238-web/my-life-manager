@@ -11,10 +11,10 @@ const partFiles = fs.readdirSync(partsDir).filter(name => name.startsWith('index
 const packed = partFiles.map(name => fs.readFileSync(path.join(partsDir, name), 'utf8')).join('');
 const html = zlib.gunzipSync(Buffer.from(packed, 'base64')).toString('utf8');
 
-assert.match(html, /const VERSION='9\.13\.260'/);
+assert.match(html, /const VERSION='9\.13\.261'/);
 assert.match(html, /corex-cleanup-v913255-shell-runtime/);
 assert.match(html, /corex-v913256-shell-runtime/);
-assert.match(html, /Corex v9\.13\.260/);
+assert.match(html, /Corex v9\.13\.261/);
 assert.match(html, /id:'connection',label:'PC'/);
 assert.match(html, /data-settings-group="advanced"/);
 assert.match(html, /button\.remove\(\)/);
@@ -138,11 +138,19 @@ assert.match(html, /data-pc-transport="USB tethering"/);
 assert.match(html, /native\.scanQr\(\)/);
 assert.match(html, /grid-template-columns:repeat\(5,minmax\(0,1fr\)\)!important/);
 assert.match(html, /corex-approved-settings-v913260-style/);
+assert.match(html, /corex-approved-settings-v913261-runtime/);
 assert.match(html, /flex-direction:row!important/);
 assert.match(html, /settings-section-icon\{[\s\S]*?flex:0 0 28px!important/);
 assert.match(html, /class="premium-dot"/);
 assert.match(html, /font-size:8\.2px!important/);
 assert.match(html, /const labels=\{general:'General',reminders:'Alert',data:'Data',security:'Security',connection:'PC'\}/);
+assert.match(html, /button\.dataset\.mlmApprovedSettingsIcon='1'/);
+assert.match(html, /button\.closest\?\.\('#settingsGroupNav'\)/,
+  'the global icon converter must never alter a Settings navigation button');
+assert.match(html, /button\.innerHTML='<span class="settings-section-icon">'\+icons\[id\]\+'<\/span><span class="settings-section-label">'\+label\+'<\/span>'/,
+  'the final Settings repair must restore exactly one approved icon and one label');
+assert.match(html, /querySelectorAll\(':scope > \.mlm-standard-icon,:scope > \.mlm-a-icon'\)/,
+  'legacy duplicate icons must be removed from Settings buttons');
 assert.match(html, /<h3>Connect PC<\/h3>/);
 assert.match(html, /id="pcHost"/);
 assert.match(html, /id="pcPin"/);
@@ -207,8 +215,8 @@ assert.match(watchdog, /notification-watchdog/);
 assert.match(watchdog, /NotificationPublisher\.show/);
 
 const gradle = fs.readFileSync(path.join(app, 'build.gradle.kts'), 'utf8');
-assert.match(gradle, /versionCode = 913260/);
-assert.match(gradle, /versionName = "9\.13\.260-corex-pc"/);
+assert.match(gradle, /versionCode = 913261/);
+assert.match(gradle, /versionName = "9\.13\.261-corex-pc"/);
 assert.match(gradle, /zxing-android-embedded:4\.3\.0/);
 const launcherSource = path.join(app, 'src', 'main', 'res', 'drawable-nodpi', 'corex_icon_v260_art.webp.b64');
 assert.ok(fs.existsSync(launcherSource), 'the selected full-bleed premium launcher art must be packaged');
@@ -290,4 +298,4 @@ assert.match(pcNative, /public void scanQr\(\)/);
 assert.match(mainActivity, /IntentIntegrator/);
 assert.match(mainActivity, /This is not a Corex PC Companion QR code/);
 
-console.log('Corex v9.13.260 and PC Companion v1.1.2 source verification passed');
+console.log('Corex v9.13.261 and PC Companion v1.1.2 source verification passed');
