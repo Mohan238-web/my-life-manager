@@ -66,7 +66,7 @@ try{
    assert.equal(row.duplicateIcons,0,`${row.id} must not receive a converter icon`);
    assert.equal(row.visible,true,`${row.id} must render at phone width`);
    assert.equal(row.contentInside,true,`${row.id} icon and label must stay inside the button`);
-   assert.equal(row.horizontalOverflow,false,`${row.id} must not overflow horizontally`);
+   assert.equal(row.horizontalOverflow,false,`${row.id} must not overflow horizontally: ${JSON.stringify(row)}`);
   }
  };
 

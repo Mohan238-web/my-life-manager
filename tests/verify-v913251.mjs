@@ -143,6 +143,8 @@ assert.match(html, /flex-direction:row!important/);
 assert.match(html, /settings-section-icon\{[\s\S]*?flex:0 0 28px!important/);
 assert.match(html, /class="premium-dot"/);
 assert.match(html, /font-size:8\.2px!important/);
+assert.match(html, /data-settings-group="security"\]\{gap:2px!important;padding-inline:1px!important;font-size:7\.4px!important/,
+  'the complete Security label must fit inside its phone-width tab');
 assert.match(html, /const labels=\{general:'General',reminders:'Alert',data:'Data',security:'Security',connection:'PC'\}/);
 assert.match(html, /button\.dataset\.mlmApprovedSettingsIcon='1'/);
 assert.match(html, /button\.closest\?\.\('#settingsGroupNav'\)/,
