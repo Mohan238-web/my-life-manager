@@ -1,0 +1,57 @@
+name: Publish Corex v9.13.260 permanent release
+
+on:
+  push:
+    branches: [ corex-release-v9.13.260 ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reconstruct verified release files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p stage
+          cat release/v913260/Corex-v9.13.260.apk.b64.part-* | tr -d '\r\n' | base64 --decode > stage/Corex-v9.13.260.apk
+          cat corex-v9.13.249/app/src/main/assets_parts/index.html.gz.b64.part-* | tr -d '\r\n' | base64 --decode | gzip --decompress > stage/Corex-v9.13.260.html
+          gh run download 33349600351 --repo "$GITHUB_REPOSITORY" --name Corex-PC-Companion-v1.1.2-Windows --dir stage
+      - name: Verify hashes, signature and packaged source
+        run: |
+          test "$(sha256sum stage/Corex-v9.13.260.apk | cut -d' ' -f1)" = "5fea21e55dcf6c50632adf4bb65ca964c7c6880806a9b3360ed845f486540a53"
+          test "$(sha256sum stage/Corex-PC-Companion-v1.1.2.exe | cut -d' ' -f1)" = "098a5c2b2a4a33e53c741956f1dab72d64594978d98b5bf96b8ead170d3e2c8b"
+          test "$(sha256sum stage/Corex-v9.13.260.html | cut -d' ' -f1)" = "9fb3ae806345a12a946a986671df81b8b3eeb321d8c15d2b3e84f7999ab89d51"
+          APKSIGNER_JAR=$(find "$ANDROID_HOME/build-tools" -path '*/lib/apksigner.jar' | sort -V | tail -1)
+          test -f "$APKSIGNER_JAR"
+          java -jar "$APKSIGNER_JAR" verify --verbose --print-certs stage/Corex-v9.13.260.apk | tee stage/apk-verification.txt
+          grep -q 'Verified using v2 scheme.*true' stage/apk-verification.txt
+          grep -q 'Verified using v3 scheme.*true' stage/apk-verification.txt
+          grep -q '65462589fb33dbb2173b556e4130c0dc6430955007ce99a97435fe7e63992a04' stage/apk-verification.txt
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging stage/Corex-v9.13.260.apk | grep "package: name='com.mohan.mylifemanager' versionCode='913260' versionName='9.13.260-corex-pc'"
+          cmp -s <(unzip -p stage/Corex-v9.13.260.apk assets/index.html) stage/Corex-v9.13.260.html
+          unzip -l stage/Corex-v9.13.260.apk | grep 'corex_icon_v260_art'
+          unzip -l stage/Corex-v9.13.260.apk | grep 'corex_icon_v249_art_webp'
+          test "$(head -c 2 stage/Corex-PC-Companion-v1.1.2.exe)" = "MZ"
+      - name: Publish permanent GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=corex-v9.13.260
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; refusing to replace it."
+            exit 1
+          fi
+          gh release create "$TAG" \
+            stage/Corex-v9.13.260.apk \
+            stage/Corex-PC-Companion-v1.1.2.exe \
+            stage/Corex-v9.13.260.html \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Corex v9.13.260 + PC Companion v1.1.2" \
+            --notes "Approved complete icon update. Includes the selected full-bleed premium launcher icon, the soft-premium horizontal Settings icon set with responsive labels, and PC Companion v1.1.2. The working Priority reminder, notification fingerprint, saved data, long-press actions, QR/USB pairing, and synchronization behavior remain protected."
