@@ -39,6 +39,7 @@ jobs:
       - name: Prepare selected premium launcher resource
         run: |
           base64 --decode app/src/main/res/drawable-nodpi/corex_icon_v260_art.webp.b64 > app/src/main/res/drawable-nodpi/corex_icon_v260_art.webp
+          rm -f app/src/main/res/drawable-nodpi/corex_icon_v259_art.webp.b64
           rm app/src/main/res/drawable-nodpi/corex_icon_v260_art.webp.b64
       - name: Compile Android app without emulator
         run: gradle --no-daemon --stacktrace :app:assembleDebug
@@ -84,7 +85,7 @@ jobs:
       - name: Reconstruct the verified Corex interface for Windows
         shell: bash
         run: |
-          cat ../corex-v9.13.249/app/src/main/assets_parts/index.html.gz.b64.part-* | base64 --decode > corex.html.gz
+          cat ../corex-v9.13.249/app/src/main/assets_parts/index.html.gz.b64.part-* | tr -d '\r\n' | base64 --decode > corex.html.gz
           gzip --test corex.html.gz
           gzip --decompress --stdout corex.html.gz | grep -q "const VERSION='9.13.260'"
       - name: Test synchronization, pairing and recovery
