@@ -67,7 +67,7 @@ func TestHumanDashboardAndEmbeddedCorex(t *testing.T){
 	recorder:=httptest.NewRecorder();a.corexApp(recorder,request)
 	if recorder.Code!=http.StatusOK{t.Fatalf("Corex app status %d: %s",recorder.Code,recorder.Body.String())}
 	body:=recorder.Body.String()
-	for _, required := range []string{"const VERSION='9.13.259'", "corex-desktop-bridge-runtime", "Open Companion control centre", "MLMNativeNotifications"} {
+	for _, required := range []string{"const VERSION='9.13.260'", "corex-desktop-bridge-runtime", "Open Companion control centre", "MLMNativeNotifications"} {
 		if !strings.Contains(body, required) {
 			t.Fatalf("embedded Corex app missing %q", required)
 		}

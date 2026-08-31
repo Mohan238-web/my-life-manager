@@ -11,10 +11,10 @@ const partFiles = fs.readdirSync(partsDir).filter(name => name.startsWith('index
 const packed = partFiles.map(name => fs.readFileSync(path.join(partsDir, name), 'utf8')).join('');
 const html = zlib.gunzipSync(Buffer.from(packed, 'base64')).toString('utf8');
 
-assert.match(html, /const VERSION='9\.13\.259'/);
+assert.match(html, /const VERSION='9\.13\.260'/);
 assert.match(html, /corex-cleanup-v913255-shell-runtime/);
 assert.match(html, /corex-v913256-shell-runtime/);
-assert.match(html, /Corex v9\.13\.259/);
+assert.match(html, /Corex v9\.13\.260/);
 assert.match(html, /id:'connection',label:'PC'/);
 assert.match(html, /data-settings-group="advanced"/);
 assert.match(html, /button\.remove\(\)/);
@@ -137,8 +137,11 @@ assert.match(html, /id="pcScanQr"/);
 assert.match(html, /data-pc-transport="USB tethering"/);
 assert.match(html, /native\.scanQr\(\)/);
 assert.match(html, /grid-template-columns:repeat\(5,minmax\(0,1fr\)\)!important/);
-assert.match(html, /corex-approved-settings-v913259-style/);
+assert.match(html, /corex-approved-settings-v913260-style/);
 assert.match(html, /flex-direction:row!important/);
+assert.match(html, /settings-section-icon\{[\s\S]*?flex:0 0 28px!important/);
+assert.match(html, /class="premium-dot"/);
+assert.match(html, /font-size:8\.2px!important/);
 assert.match(html, /const labels=\{general:'General',reminders:'Alert',data:'Data',security:'Security',connection:'PC'\}/);
 assert.match(html, /<h3>Connect PC<\/h3>/);
 assert.match(html, /id="pcHost"/);
@@ -177,6 +180,11 @@ const delivery = fs.readFileSync(path.join(app, 'src', 'main', 'java', 'com', 'm
 const optimisticRemove = delivery.match(/if \(ReminderOverlayService\.show[\s\S]*?return true;/)?.[0] || '';
 assert.doesNotMatch(optimisticRemove, /ReminderStore\.remove\(context, id\)/,
   'delivery must not delete the alarm before the overlay confirms visibility');
+const reminderOverlay = fs.readFileSync(path.join(app, 'src', 'main', 'java', 'com', 'mohan',
+  'mylifemanager', 'ReminderOverlayService.java'), 'utf8');
+assert.match(reminderOverlay, /R\.drawable\.corex_icon_v249_art_webp/,
+  'the approved notification fingerprint must remain unchanged');
+assert.match(reminderOverlay, /R\.drawable\.ic_stat_fingerprint/);
 
 const manifest = fs.readFileSync(path.join(app, 'src', 'main', 'AndroidManifest.xml'), 'utf8');
 for (const permission of ['POST_NOTIFICATIONS', 'USE_EXACT_ALARM', 'SYSTEM_ALERT_WINDOW',
@@ -199,14 +207,17 @@ assert.match(watchdog, /notification-watchdog/);
 assert.match(watchdog, /NotificationPublisher\.show/);
 
 const gradle = fs.readFileSync(path.join(app, 'build.gradle.kts'), 'utf8');
-assert.match(gradle, /versionCode = 913259/);
-assert.match(gradle, /versionName = "9\.13\.259-corex-pc"/);
+assert.match(gradle, /versionCode = 913260/);
+assert.match(gradle, /versionName = "9\.13\.260-corex-pc"/);
 assert.match(gradle, /zxing-android-embedded:4\.3\.0/);
-assert.ok(fs.existsSync(path.join(app, 'src', 'main', 'res', 'drawable-nodpi', 'corex_icon_v259_art.webp.b64')),
-  'the approved royal-cobalt launcher art source must be packaged');
+const launcherSource = path.join(app, 'src', 'main', 'res', 'drawable-nodpi', 'corex_icon_v260_art.webp.b64');
+assert.ok(fs.existsSync(launcherSource), 'the selected full-bleed premium launcher art must be packaged');
+const launcherBytes = Buffer.from(fs.readFileSync(launcherSource, 'utf8').replace(/\s+/g, ''), 'base64');
+assert.equal(launcherBytes.subarray(0, 4).toString('ascii'), 'RIFF');
+assert.equal(launcherBytes.subarray(8, 12).toString('ascii'), 'WEBP');
 const launcherForeground = fs.readFileSync(path.join(app, 'src', 'main', 'res', 'drawable',
   'corex_icon_v250_foreground.xml'), 'utf8');
-assert.match(launcherForeground, /@drawable\/corex_icon_v259_art/);
+assert.match(launcherForeground, /@drawable\/corex_icon_v260_art/);
 
 const expenseMatch = html.match(/\{"id":"expense","name":"Money","data":"([^"]+)"/);
 assert.ok(expenseMatch, 'Expense Manager payload is embedded');
@@ -245,7 +256,7 @@ compileInlineScripts(mileage, 'Mileage');
 const pcMain = fs.readFileSync(path.join(root, 'pc-companion', 'main.go'), 'utf8');
 const pcQR = fs.readFileSync(path.join(root, 'pc-companion', 'qr.go'), 'utf8');
 const pcDashboard = fs.readFileSync(path.join(root, 'pc-companion', 'dashboard.go'), 'utf8');
-assert.match(pcMain, /const \([\s\S]*companionVersion = "1\.1\.1"/);
+assert.match(pcMain, /const \([\s\S]*companionVersion = "1\.1\.2"/);
 assert.match(pcMain, /pbkdf2SHA256/);
 assert.match(pcMain, /cipher\.NewGCM/);
 assert.match(pcMain, /Crypt|protect\(plain\)/);
@@ -279,4 +290,4 @@ assert.match(pcNative, /public void scanQr\(\)/);
 assert.match(mainActivity, /IntentIntegrator/);
 assert.match(mainActivity, /This is not a Corex PC Companion QR code/);
 
-console.log('Corex v9.13.259 and full PC Companion source verification passed');
+console.log('Corex v9.13.260 and PC Companion v1.1.2 source verification passed');
