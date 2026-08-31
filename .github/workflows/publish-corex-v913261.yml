@@ -36,6 +36,14 @@ jobs:
           grep -q "button.closest?.('#settingsGroupNav')" publish/index.html
           unzip -l publish/Corex-v9.13.261.apk | grep 'corex_icon_v260_art'
           unzip -l publish/Corex-v9.13.261.apk | grep 'corex_icon_v249_art_webp'
+      - name: Store the APK as a repository file
+        run: |
+          cp publish/Corex-v9.13.261.apk Corex-v9.13.261.apk
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Corex-v9.13.261.apk
+          git commit -m 'Add Corex v9.13.261 repository APK [skip ci]'
+          git push origin HEAD:corex-release-v9.13.261
       - name: Publish one stable APK download
         env:
           GH_TOKEN: ${{ github.token }}
