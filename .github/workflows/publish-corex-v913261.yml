@@ -1,0 +1,49 @@
+name: Publish Corex v9.13.261 APK
+
+on:
+  push:
+    branches: [ corex-release-v9.13.261 ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reconstruct the permanently signed APK
+        run: |
+          mkdir -p publish
+          cat release/v913261/Corex-v9.13.261.apk.part-* > publish/Corex-v9.13.261.apk
+          echo 'a3e595df26745532f37c93df690c1e88ebef2185662024dd4a61efdb65b6441b  publish/Corex-v9.13.261.apk' | sha256sum --check --strict
+          unzip -t publish/Corex-v9.13.261.apk
+      - name: Verify package, permanent certificate, interface and icons
+        run: |
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)
+          test -x "$APKSIGNER"
+          AAPT="$(dirname "$APKSIGNER")/aapt"
+          test -x "$AAPT"
+          "$APKSIGNER" verify --verbose --print-certs publish/Corex-v9.13.261.apk | tee publish/signature.txt
+          grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true' publish/signature.txt
+          grep -q 'Verified using v3 scheme (APK Signature Scheme v3): true' publish/signature.txt
+          grep -q 'certificate SHA-256 digest: 65462589fb33dbb2173b556e4130c0dc6430955007ce99a97435fe7e63992a04' publish/signature.txt
+          "$AAPT" dump badging publish/Corex-v9.13.261.apk | grep "package: name='com.mohan.mylifemanager' versionCode='913261' versionName='9.13.261-corex-pc'"
+          unzip -p publish/Corex-v9.13.261.apk assets/index.html > publish/index.html
+          grep -q "const VERSION='9.13.261'" publish/index.html
+          grep -q 'corex-approved-settings-v913261-runtime' publish/index.html
+          grep -q "button.closest?.('#settingsGroupNav')" publish/index.html
+          unzip -l publish/Corex-v9.13.261.apk | grep 'corex_icon_v260_art'
+          unzip -l publish/Corex-v9.13.261.apk | grep 'corex_icon_v249_art_webp'
+      - name: Publish one stable APK download
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view corex-v9.13.261 >/dev/null 2>&1; then
+            gh release upload corex-v9.13.261 publish/Corex-v9.13.261.apk --clobber
+          else
+            gh release create corex-v9.13.261 publish/Corex-v9.13.261.apk \
+              --title 'Corex v9.13.261' \
+              --notes 'Settings icon correction: every Settings tab retains one premium icon box and one complete label. The working reminders, launcher icon, saved data, PC connection, and long-press actions are unchanged.'
+          fi
